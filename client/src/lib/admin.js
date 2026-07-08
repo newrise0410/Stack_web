@@ -51,6 +51,16 @@ export async function setUserStatus(id, status) {
   return data;
 }
 
+// ── 상품 ───────────────────────────────────────────────────
+export async function fetchAdminProducts(params = {}) {
+  const { data } = await api.get('/products/admin', { params });
+  return data;
+}
+export async function patchProduct(slug, body) {
+  const { data } = await api.patch(`/products/${slug}`, body);
+  return data;
+}
+
 // ── 리뷰 관리 ──────────────────────────────────────────────
 export async function fetchAdminReviews(params = {}) {
   const { data } = await api.get('/reviews/admin', { params });

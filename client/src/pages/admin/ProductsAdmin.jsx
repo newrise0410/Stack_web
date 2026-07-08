@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import api from '../../lib/api.js';
 import { won } from '../../lib/format.js';
+import { fetchAdminProducts, patchProduct } from '../../lib/admin.js';
+import Stars from '../../components/Stars.jsx';
+import Pagination from '../../components/admin/Pagination.jsx';
 
 const inputCls =
   'w-full border border-line px-3 py-2 text-sm focus:border-ink focus:outline-none';
@@ -9,21 +13,26 @@ const label = 'mb-1 block text-[12px] text-mute';
 const TYPES = ['Table', 'Pendant', 'MoonWall'];
 const STATUSES = ['active', 'draft', 'soldout', 'archived'];
 const BADGE_OPTS = ['NEW', 'BEST', 'SALE'];
+const SORTS = [
+  { id: 'new', label: '최신순' },
+  { id: 'best', label: '판매순' },
+  { id: 'priceAsc', label: '낮은가격순' },
+  { id: 'priceDesc', label: '높은가격순' },
+];
 
 const emptyForm = {
   slug: '', name: '', nameKo: '', type: 'Table', price: '', compareAtPrice: '',
-  badges: {}, imagesText: '', description: '',
+  badges: {}, images: [], description: '',
   material: '', dimensions: '', feature: '', leadTime: '',
   optionsText: '', status: 'active',
 };
 
-// DB 상품 → 폼 상태
 function toForm(p) {
   return {
     slug: p.slug, name: p.name, nameKo: p.nameKo || '', type: p.type,
     price: String(p.price ?? ''), compareAtPrice: p.compareAtPrice != null ? String(p.compareAtPrice) : '',
     badges: Object.fromEntries((p.badges || []).map((b) => [b, true])),
-    imagesText: (p.images || []).join('\n'),
+    images: [...(p.images || [])],
     description: p.description || '',
     material: p.specs?.material || '', dimensions: p.specs?.dimensions || '',
     feature: p.specs?.feature || '', leadTime: p.specs?.leadTime || '',
@@ -32,7 +41,6 @@ function toForm(p) {
   };
 }
 
-// 폼 상태 → API 바디
 function toBody(f) {
   return {
     slug: f.slug.trim(),
@@ -42,7 +50,7 @@ function toBody(f) {
     price: Number(f.price),
     compareAtPrice: f.compareAtPrice ? Number(f.compareAtPrice) : null,
     badges: BADGE_OPTS.filter((b) => f.badges[b]),
-    images: f.imagesText.split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
+    images: f.images.map((s) => s.trim()).filter(Boolean),
     description: f.description.trim(),
     specs: { material: f.material, dimensions: f.dimensions, feature: f.feature, leadTime: f.leadTime },
     options: f.optionsText.split(',').map((s) => s.trim()).filter(Boolean),
@@ -58,6 +66,18 @@ function ProductForm({ initial, onDone, onCancel }) {
 
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
   const on = (e) => set(e.target.name, e.target.value);
+
+  // 이미지 배열 편집 (순서 = 노출 순서, 첫 장 = 대표)
+  const setImage = (i, v) => setF((s) => ({ ...s, images: s.images.map((x, idx) => (idx === i ? v : x)) }));
+  const addImage = () => setF((s) => ({ ...s, images: [...s.images, ''] }));
+  const removeImage = (i) => setF((s) => ({ ...s, images: s.images.filter((_, idx) => idx !== i) }));
+  const moveImage = (i, dir) => setF((s) => {
+    const j = i + dir;
+    if (j < 0 || j >= s.images.length) return s;
+    const next = [...s.images];
+    [next[i], next[j]] = [next[j], next[i]];
+    return { ...s, images: next };
+  });
 
   const submit = async (e) => {
     e.preventDefault();
@@ -104,10 +124,29 @@ function ProductForm({ initial, onDone, onCancel }) {
           <label className={label}>정가 (할인표시용)</label>
           <input className={inputCls} type="number" name="compareAtPrice" value={f.compareAtPrice} onChange={on} />
         </div>
+
         <div className="md:col-span-2">
-          <label className={label}>이미지 URL (줄바꿈/쉼표 구분)</label>
-          <textarea className={inputCls} name="imagesText" rows={2} value={f.imagesText} onChange={on} />
+          <label className={label}>이미지 URL (순서 = 노출 순서, 첫 장이 대표)</label>
+          <div className="space-y-2">
+            {f.images.map((url, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <div className="h-12 w-12 shrink-0 overflow-hidden border border-line bg-tint">
+                  {url && <img src={url} alt="" className="h-full w-full object-cover" />}
+                </div>
+                <input className={inputCls} value={url} onChange={(e) => setImage(i, e.target.value)} placeholder="https://..." />
+                <button type="button" onClick={() => moveImage(i, -1)} disabled={i === 0}
+                  className="px-2 text-mute hover:text-ink disabled:opacity-30" aria-label="위로">↑</button>
+                <button type="button" onClick={() => moveImage(i, 1)} disabled={i === f.images.length - 1}
+                  className="px-2 text-mute hover:text-ink disabled:opacity-30" aria-label="아래로">↓</button>
+                <button type="button" onClick={() => removeImage(i)} className="px-2 text-sale hover:opacity-70" aria-label="삭제">✕</button>
+              </div>
+            ))}
+            <button type="button" onClick={addImage} className="border border-line px-3 py-1.5 text-[13px] hover:bg-tint">
+              + 이미지 추가
+            </button>
+          </div>
         </div>
+
         <div className="md:col-span-2">
           <label className={label}>설명</label>
           <textarea className={inputCls} name="description" rows={2} value={f.description} onChange={on} />
@@ -152,33 +191,65 @@ function ProductForm({ initial, onDone, onCancel }) {
 }
 
 export default function ProductsAdmin() {
-  const [items, setItems] = useState([]);
+  const [params, setParams] = useSearchParams();
+  const q = params.get('q') || '';
+  const type = params.get('type') || '';
+  const status = params.get('status') || '';
+  const sort = params.get('sort') || 'new';
+  const page = Math.max(1, parseInt(params.get('page'), 10) || 1);
+
+  const [data, setData] = useState({ items: [], total: 0, limit: 20 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(null); // product | 'new' | null
+  const [term, setTerm] = useState(q);
 
-  const load = useCallback(() => {
+  const load = () => {
+    let active = true;
     setLoading(true);
     setError('');
-    api.get('/products/admin')
-      .then(({ data }) => setItems(data.items))
-      .catch(() => setError('상품 목록을 불러오지 못했습니다.'))
-      .finally(() => setLoading(false));
-  }, []);
+    fetchAdminProducts({ q: q || undefined, type: type || undefined, status: status || undefined, sort, page })
+      .then((d) => active && setData(d))
+      .catch(() => active && setError('상품 목록을 불러오지 못했습니다.'))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  };
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(load, [q, type, status, sort, page]);
+  useEffect(() => { setTerm(q); }, [q]);
 
-  const onDone = () => { setEditing(null); load(); };
+  const patch = (obj) =>
+    setParams((prev) => {
+      const n = new URLSearchParams(prev);
+      Object.entries(obj).forEach(([k, v]) => (v ? n.set(k, v) : n.delete(k)));
+      if (!('page' in obj)) n.delete('page');
+      return n;
+    });
+
+  const reload = () => { setEditing(null); load(); };
   const remove = async (slug) => {
     if (!window.confirm(`'${slug}' 상품을 삭제할까요?`)) return;
-    await api.delete(`/products/${slug}`);
-    load();
+    try {
+      await api.delete(`/products/${slug}`);
+      load();
+    } catch {
+      window.alert('삭제에 실패했습니다.');
+    }
+  };
+
+  const quickStatus = async (p, next) => {
+    try {
+      const updated = await patchProduct(p.slug, { status: next });
+      setData((d) => ({ ...d, items: d.items.map((x) => (x._id === p._id ? updated : x)) }));
+    } catch {
+      window.alert('상태 변경에 실패했습니다.');
+    }
   };
 
   return (
     <div>
       <div className="mb-5 flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight">상품 <span className="text-[13px] font-normal text-mute">총 {items.length}개</span></h1>
+        <h1 className="text-2xl font-bold tracking-tight">상품 <span className="text-[13px] font-normal text-mute">총 {data.total}개</span></h1>
         {!editing && (
           <button onClick={() => setEditing('new')} className="bg-ink px-5 py-2.5 text-sm font-medium text-paper hover:bg-ink/85">
             + 새 상품
@@ -186,8 +257,29 @@ export default function ProductsAdmin() {
         )}
       </div>
 
-      {editing === 'new' && <ProductForm onDone={onDone} onCancel={() => setEditing(null)} />}
-      {editing && editing !== 'new' && <ProductForm initial={editing} onDone={onDone} onCancel={() => setEditing(null)} />}
+      {editing === 'new' && <ProductForm onDone={reload} onCancel={() => setEditing(null)} />}
+      {editing && editing !== 'new' && <ProductForm initial={editing} onDone={reload} onCancel={() => setEditing(null)} />}
+
+      {!editing && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          <form onSubmit={(e) => { e.preventDefault(); patch({ q: term.trim() }); }} className="flex gap-2">
+            <input value={term} onChange={(e) => setTerm(e.target.value)} placeholder="상품명·slug"
+              className="border border-line px-3 py-2 text-sm focus:border-ink focus:outline-none" />
+            <button className="border border-ink px-4 py-2 text-sm hover:bg-tint">검색</button>
+          </form>
+          <select value={type} onChange={(e) => patch({ type: e.target.value })} className="border border-line px-3 py-2 text-sm focus:border-ink focus:outline-none">
+            <option value="">전체 타입</option>
+            {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <select value={status} onChange={(e) => patch({ status: e.target.value })} className="border border-line px-3 py-2 text-sm focus:border-ink focus:outline-none">
+            <option value="">전체 상태</option>
+            {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select value={sort} onChange={(e) => patch({ sort: e.target.value })} className="border border-line px-3 py-2 text-sm focus:border-ink focus:outline-none">
+            {SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </div>
+      )}
 
       {loading ? (
         <p className="py-8 text-center text-mute">불러오는 중…</p>
@@ -196,45 +288,64 @@ export default function ProductsAdmin() {
           <p className="text-mute">{error}</p>
           <button onClick={load} className="mt-4 border border-ink px-6 py-2.5 text-sm hover:bg-tint">다시 시도</button>
         </div>
+      ) : data.total === 0 ? (
+        <p className="py-8 text-center text-mute">상품이 없습니다.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead>
-              <tr className="border-y border-line text-left text-[12px] text-mute">
-                <th className="py-2 pr-3">이미지</th>
-                <th className="py-2 pr-3">상품명</th>
-                <th className="py-2 pr-3">타입</th>
-                <th className="py-2 pr-3">가격</th>
-                <th className="py-2 pr-3">뱃지</th>
-                <th className="py-2 pr-3">상태</th>
-                <th className="py-2 pr-3">관리</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((p) => (
-                <tr key={p._id} className="border-b border-line">
-                  <td className="py-2 pr-3">
-                    <img src={p.images?.[0]} alt="" className="h-12 w-12 rounded bg-tint object-cover" />
-                  </td>
-                  <td className="py-2 pr-3">
-                    <p className="font-medium">{p.name}</p>
-                    <p className="text-[12px] text-mute">{p.nameKo}</p>
-                  </td>
-                  <td className="py-2 pr-3 text-mute">{p.type}</td>
-                  <td className="py-2 pr-3">{won(p.price)}원</td>
-                  <td className="py-2 pr-3 text-[12px] text-mute">{(p.badges || []).join(', ') || '-'}</td>
-                  <td className="py-2 pr-3 text-[12px] text-mute">{p.status}</td>
-                  <td className="py-2 pr-3">
-                    <div className="flex gap-2 text-[12px]">
-                      <button className="text-ink hover:underline" onClick={() => setEditing(p)}>수정</button>
-                      <button className="text-sale hover:underline" onClick={() => remove(p.slug)}>삭제</button>
-                    </div>
-                  </td>
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[860px] text-sm">
+              <thead>
+                <tr className="border-y border-line text-left text-[12px] text-mute">
+                  <th className="py-2 pr-3">이미지</th>
+                  <th className="py-2 pr-3">상품명</th>
+                  <th className="py-2 pr-3">타입</th>
+                  <th className="py-2 pr-3">가격</th>
+                  <th className="py-2 pr-3">판매</th>
+                  <th className="py-2 pr-3">평점</th>
+                  <th className="py-2 pr-3">상태</th>
+                  <th className="py-2 pr-3">관리</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {data.items.map((p) => (
+                  <tr key={p._id} className="border-b border-line">
+                    <td className="py-2 pr-3">
+                      <img src={p.images?.[0]} alt="" className="h-12 w-12 rounded bg-tint object-cover" />
+                    </td>
+                    <td className="py-2 pr-3">
+                      <p className="font-medium">{p.name}</p>
+                      <p className="text-[12px] text-mute">{p.nameKo}</p>
+                    </td>
+                    <td className="py-2 pr-3 text-mute">{p.type}</td>
+                    <td className="py-2 pr-3">{won(p.price)}원</td>
+                    <td className="py-2 pr-3 text-mute">{p.salesCount || 0}</td>
+                    <td className="py-2 pr-3">
+                      {p.ratingCount > 0 ? (
+                        <span className="flex items-center gap-1">
+                          <Stars value={p.ratingAvg} size="text-[10px]" />
+                          <span className="text-[11px] text-faint">({p.ratingCount})</span>
+                        </span>
+                      ) : <span className="text-faint">-</span>}
+                    </td>
+                    <td className="py-2 pr-3">
+                      <select value={p.status} onChange={(e) => quickStatus(p, e.target.value)}
+                        className="border border-line px-2 py-1 text-[12px] focus:border-ink focus:outline-none">
+                        {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </td>
+                    <td className="py-2 pr-3">
+                      <div className="flex gap-2 text-[12px]">
+                        <button className="text-ink hover:underline" onClick={() => setEditing(p)}>수정</button>
+                        <button className="text-sale hover:underline" onClick={() => remove(p.slug)}>삭제</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Pagination page={page} total={data.total} limit={data.limit} onPage={(p) => patch({ page: String(p) })} />
+        </>
       )}
     </div>
   );

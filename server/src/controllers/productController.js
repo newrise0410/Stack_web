@@ -37,10 +37,30 @@ export async function listProducts(req, res) {
   res.json({ page, limit, total, items });
 }
 
-// READ (list, admin) — GET /products/admin — 모든 status 반환 (관리용)
+// READ (list, admin) — GET /products/admin?status=&type=&q=&sort=&page=&limit= — 모든 status 대상
+const PRODUCT_STATES = ['active', 'draft', 'soldout', 'archived'];
+const PRODUCT_TYPES = ['Table', 'Pendant', 'MoonWall'];
 export async function listAllProducts(req, res) {
-  const items = await Product.find().sort({ createdAt: -1 });
-  res.json({ items });
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+  const sort = str(req.query.sort);
+
+  const filter = {};
+  const status = str(req.query.status);
+  if (PRODUCT_STATES.includes(status)) filter.status = status;
+  const type = str(req.query.type);
+  if (PRODUCT_TYPES.includes(type)) filter.type = type;
+  const q = str(req.query.q).trim();
+  if (q) {
+    const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    filter.$or = [{ name: rx }, { nameKo: rx }, { slug: rx }];
+  }
+
+  const [items, total] = await Promise.all([
+    Product.find(filter).sort(SORTS[sort] || { createdAt: -1 }).skip((page - 1) * limit).limit(limit),
+    Product.countDocuments(filter),
+  ]);
+  res.json({ page, limit, total, items });
 }
 
 // READ (one) — GET /products/:slug — 공개는 active/soldout만, draft/archived는 숨김
