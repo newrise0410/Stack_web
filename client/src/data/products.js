@@ -40,7 +40,7 @@ export const products = [
     feature: 'USB-C · 3단 밝기',
     made: '주문 후 제작 (2–4일)',
     options: ['Milk', 'Amber', 'Sage'],
-    blurb: '주름진 갓 사이로 빛이 새어 나오는 클래식 테이블 램프. 어느 협탁에도 무난합니다.',
+    blurb: '주름진 갓 사이로 빛이 새어 나오는 클래식 테이블 램프. 어느 협탁에 놓아도 튀지 않습니다.',
   },
   {
     id: 'modern-desk-lamp',

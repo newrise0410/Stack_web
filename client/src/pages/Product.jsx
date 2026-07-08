@@ -172,7 +172,7 @@ export default function Product() {
           <h2 className="text-xl font-bold tracking-tight">층이 곧 표면입니다</h2>
           <p className="mx-auto mt-3 max-w-md text-[14px] leading-relaxed text-mute">
             숨기지 않은 층선이 손끝에 결로 남습니다. 같은 도면이라도 층 높이에
-            따라 전혀 다른 감촉과 빛의 결이 됩니다.
+            따라 감촉도 빛의 결도 달라집니다.
           </p>
         </div>
       </section>
