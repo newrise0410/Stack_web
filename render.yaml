@@ -1,0 +1,21 @@
+# Render Blueprint — 백엔드(Express) 웹 서비스.
+# Render 대시보드에서 "New +" → "Blueprint"로 이 저장소를 연결하면 자동 인식.
+# MONGODB_URI / JWT_SECRET / CLIENT_ORIGIN 은 대시보드에서 직접 입력(sync:false).
+services:
+  - type: web
+    name: stacknstak-api
+    runtime: node
+    rootDir: server
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: MONGODB_URI
+        sync: false # MongoDB Atlas 연결 문자열
+      - key: JWT_SECRET
+        sync: false # 긴 랜덤 문자열
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CLIENT_ORIGIN
+        sync: false # Vercel 프론트 도메인 (예: https://stacknstak.vercel.app)

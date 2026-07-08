@@ -1,0 +1,21 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+build/
+
+# env & secrets (절대 커밋 금지)
+.env
+.env.local
+.env.*.local
+server/.env
+client/.env
+
+# logs
+*.log
+npm-debug.log*
+
+# OS / tooling
+.DS_Store
+.playwright-mcp/

@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+/* ── Design tokens — 29CM-style: stark white, monochrome UI, quiet type.
+   Color comes only from product photography. */
+@theme {
+  --color-paper: #ffffff;
+  --color-tint: #f4f4f4; /* image tile / section wash */
+  --color-ink: #121212;
+  --color-mute: #737373; /* secondary text */
+  --color-faint: #a3a3a3; /* captions */
+  --color-line: #e9e9e9; /* hairlines */
+  --color-sale: #ff3b30; /* discount rate only */
+
+  --font-sans: "Pretendard Variable", "Pretendard", system-ui, sans-serif;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    letter-spacing: -0.01em;
+  }
+  ::selection {
+    background: #121212;
+    color: #fff;
+  }
+  img {
+    -webkit-user-drag: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
