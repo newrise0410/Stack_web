@@ -32,3 +32,34 @@ export async function setOrderStatus(id, body) {
   const { data } = await api.patch(`/orders/${id}/status`, body);
   return data;
 }
+
+// ── 회원 ───────────────────────────────────────────────────
+export async function fetchMembers(params = {}) {
+  const { data } = await api.get('/users', { params });
+  return data;
+}
+export async function fetchMember(id) {
+  const { data } = await api.get(`/admin/members/${id}`);
+  return data; // { user, orders, orderCount, totalSpent }
+}
+export async function setUserRole(id, role) {
+  const { data } = await api.patch(`/users/${id}/role`, { role });
+  return data;
+}
+export async function setUserStatus(id, status) {
+  const { data } = await api.patch(`/users/${id}/status`, { status });
+  return data;
+}
+
+// ── 리뷰 관리 ──────────────────────────────────────────────
+export async function fetchAdminReviews(params = {}) {
+  const { data } = await api.get('/reviews/admin', { params });
+  return data;
+}
+export async function setReviewHidden(id, hidden) {
+  const { data } = await api.patch(`/reviews/${id}/hidden`, { hidden });
+  return data;
+}
+export async function deleteReviewAdmin(id) {
+  await api.delete(`/reviews/${id}`);
+}

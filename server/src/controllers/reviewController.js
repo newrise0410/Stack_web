@@ -3,10 +3,10 @@ import Product from '../models/Product.js';
 
 const VISIBLE = ['active', 'soldout']; // 공개 상세와 동일한 노출 정책
 
-// 상품의 평점 집계값을 리뷰들로부터 다시 계산해 Product에 반영
+// 상품의 평점 집계값을 리뷰들로부터 다시 계산해 Product에 반영 (숨김 리뷰 제외)
 async function recomputeRating(productId) {
   const [agg] = await Review.aggregate([
-    { $match: { product: productId } },
+    { $match: { product: productId, hidden: { $ne: true } } },
     { $group: { _id: '$product', avg: { $avg: '$rating' }, count: { $sum: 1 } } },
   ]);
   await Product.updateOne(
@@ -24,7 +24,7 @@ export async function listReviews(req, res) {
 
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 20));
-  const filter = { product: product._id };
+  const filter = { product: product._id, hidden: { $ne: true } }; // 숨김 리뷰 제외
   const [items, total] = await Promise.all([
     Review.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit),
     Review.countDocuments(filter),
@@ -67,6 +67,41 @@ export async function createReview(req, res) {
     /* 평점 갱신 실패는 무시 */
   }
   res.status(201).json(review);
+}
+
+// 관리자 리뷰 목록 — GET /reviews/admin?product=&page=&limit= (admin)
+// 숨김 포함 전체. product(slug) 필터 옵션. product/user 이름 populate.
+export async function listAllReviews(req, res) {
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 30));
+  const filter = {};
+  const slug = String(req.query.product || '').trim();
+  if (slug) {
+    const p = await Product.findOne({ slug }).select('_id');
+    filter.product = p ? p._id : null; // 없으면 빈 결과
+  }
+  const [items, total] = await Promise.all([
+    Review.find(filter)
+      .populate('product', 'name nameKo slug')
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit),
+    Review.countDocuments(filter),
+  ]);
+  res.json({ page, limit, total, items });
+}
+
+// 숨김 토글 — PATCH /reviews/:id/hidden (admin)
+export async function setReviewHidden(req, res) {
+  const hidden = Boolean(req.body.hidden);
+  const review = await Review.findByIdAndUpdate(req.params.id, { hidden }, { new: true });
+  if (!review) return res.status(404).json({ message: '리뷰를 찾을 수 없습니다.' });
+  try {
+    await recomputeRating(review.product);
+  } catch {
+    /* 평점 갱신 실패는 무시 */
+  }
+  res.json(review);
 }
 
 // 삭제 — DELETE /reviews/:id (본인/admin)

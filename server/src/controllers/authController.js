@@ -25,6 +25,9 @@ export async function login(req, res) {
   if (!user || user.provider !== 'local' || !(await user.comparePassword(password))) {
     return res.status(401).json({ message: '이메일 또는 비밀번호가 올바르지 않습니다.' });
   }
+  if (user.status === 'suspended') {
+    return res.status(403).json({ message: '정지된 계정입니다. 고객센터에 문의해주세요.' });
+  }
 
   const token = signToken(user);
   res.json({ token, user });
@@ -72,6 +75,10 @@ export async function socialLogin(req, res) {
         throw e;
       }
     }
+  }
+
+  if (user.status === 'suspended') {
+    return res.status(403).json({ message: '정지된 계정입니다. 고객센터에 문의해주세요.' });
   }
 
   const token = signToken(user);

@@ -26,13 +26,19 @@ export async function createUser(req, res) {
   res.status(201).json(user);
 }
 
-// READ (list) — GET /users?page=1&limit=20
+// READ (list) — GET /users?page=1&limit=20&q=
 export async function listUsers(req, res) {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+  const filter = {};
+  const q = String(req.query.q || '').trim();
+  if (q) {
+    const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    filter.$or = [{ email: rx }, { name: rx }, { nickname: rx }];
+  }
   const [items, total] = await Promise.all([
-    User.find().sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit),
-    User.countDocuments(),
+    User.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit),
+    User.countDocuments(filter),
   ]);
   res.json({ page, limit, total, items });
 }
@@ -50,6 +56,34 @@ export async function updateUser(req, res) {
   if (!user) return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
   Object.assign(user, pick(req.body, UPDATE_FIELDS));
   await user.save(); // 검증·비번 해싱·updatedAt 갱신
+  res.json(user);
+}
+
+// 역할 변경 — PATCH /users/:id/role (admin). 권한 상승은 프로필 수정과 분리.
+export async function setUserRole(req, res) {
+  const role = String(req.body.role || '');
+  if (!['client', 'admin'].includes(role)) {
+    return res.status(400).json({ message: '허용되지 않은 역할입니다.' });
+  }
+  if (String(req.params.id) === String(req.user._id)) {
+    return res.status(400).json({ message: '본인의 역할은 변경할 수 없습니다.' });
+  }
+  const user = await User.findByIdAndUpdate(req.params.id, { role }, { new: true });
+  if (!user) return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
+  res.json(user);
+}
+
+// 계정 상태(정지/해제) — PATCH /users/:id/status (admin).
+export async function setUserStatus(req, res) {
+  const status = String(req.body.status || '');
+  if (!['active', 'suspended'].includes(status)) {
+    return res.status(400).json({ message: '허용되지 않은 상태입니다.' });
+  }
+  if (String(req.params.id) === String(req.user._id)) {
+    return res.status(400).json({ message: '본인 계정은 정지할 수 없습니다.' });
+  }
+  const user = await User.findByIdAndUpdate(req.params.id, { status }, { new: true });
+  if (!user) return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
   res.json(user);
 }
 

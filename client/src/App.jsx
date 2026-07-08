@@ -14,6 +14,8 @@ import OrdersAdmin from './pages/admin/OrdersAdmin.jsx';
 import OrderDetail from './pages/admin/OrderDetail.jsx';
 import ProductsAdmin from './pages/admin/ProductsAdmin.jsx';
 import MembersAdmin from './pages/admin/MembersAdmin.jsx';
+import MemberDetail from './pages/admin/MemberDetail.jsx';
+import ReviewsAdmin from './pages/admin/ReviewsAdmin.jsx';
 import Cart from './pages/Cart.jsx';
 import Checkout from './pages/Checkout.jsx';
 import CategoryList from './pages/CategoryList.jsx';
@@ -63,6 +65,8 @@ export default function App() {
         <Route path="orders/:id" element={<OrderDetail />} />
         <Route path="products" element={<ProductsAdmin />} />
         <Route path="members" element={<MembersAdmin />} />
+        <Route path="members/:id" element={<MemberDetail />} />
+        <Route path="reviews" element={<ReviewsAdmin />} />
       </Route>
     </Routes>
   );

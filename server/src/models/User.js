@@ -87,6 +87,9 @@ const userSchema = new Schema(
     // 클라이언트가 임의 지정 불가 — 회원가입 라우트에서 항상 client로 강제할 것.
     role: { type: String, enum: ['client', 'admin'], default: 'client' },
 
+    // 계정 상태. suspended면 로그인 차단. 관리자만 변경.
+    status: { type: String, enum: ['active', 'suspended'], default: 'active' },
+
     emailVerified: { type: Boolean, default: false },
     phoneVerified: { type: Boolean, default: false },
 

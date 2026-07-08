@@ -9,6 +9,10 @@ const router = Router();
 router.post('/', requireAuth, requireAdmin, asyncHandler(userController.createUser));
 router.get('/', requireAuth, requireAdmin, asyncHandler(userController.listUsers));
 
+// 관리자 전용 (권한 상승/정지는 프로필 수정과 분리, :id 보다 구체 경로라 먼저)
+router.patch('/:id/role', requireAuth, requireAdmin, asyncHandler(userController.setUserRole));
+router.patch('/:id/status', requireAuth, requireAdmin, asyncHandler(userController.setUserStatus));
+
 router.get('/:id', requireAuth, requireSelfOrAdmin(), asyncHandler(userController.getUser));
 router.patch('/:id', requireAuth, requireSelfOrAdmin(), asyncHandler(userController.updateUser));
 router.delete('/:id', requireAuth, requireSelfOrAdmin(), asyncHandler(userController.deleteUser));

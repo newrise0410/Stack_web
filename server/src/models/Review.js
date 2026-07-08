@@ -9,6 +9,7 @@ const reviewSchema = new Schema(
     userName: { type: String, required: true }, // 작성 시점 표시명(마스킹) 스냅샷
     rating: { type: Number, required: true, min: 1, max: 5 },
     content: { type: String, required: true, trim: true, maxlength: 1000 },
+    hidden: { type: Boolean, default: false }, // 관리자 숨김(공개목록·평점 제외)
   },
   { timestamps: true },
 );

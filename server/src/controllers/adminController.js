@@ -71,3 +71,14 @@ export async function getStats(req, res) {
     recentOrders: f.recent,
   });
 }
+
+// 회원 상세 — GET /admin/members/:id (admin). 프로필 + 주문 + 집계.
+export async function getMember(req, res) {
+  const user = await User.findById(req.params.id);
+  if (!user) return res.status(404).json({ message: '회원을 찾을 수 없습니다.' });
+  const orders = await Order.find({ user: user._id }).sort({ createdAt: -1 });
+  const totalSpent = orders
+    .filter((o) => o.status !== 'cancelled')
+    .reduce((a, o) => a + o.amounts.grandTotal, 0);
+  res.json({ user, orders, orderCount: orders.length, totalSpent });
+}
