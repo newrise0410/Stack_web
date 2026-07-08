@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth.jsx';
 import { fetchMyOrders, cancelOrder } from '../lib/orders.js';
+import { fetchWishlist, useWishlist } from '../lib/wishlist.jsx';
 import { won } from '../lib/format.js';
+import ProductCard from '../components/ProductCard.jsx';
 import PostcodeModal from '../components/PostcodeModal.jsx';
 
 const inputCls =
@@ -320,16 +322,60 @@ function OrdersTab() {
   );
 }
 
+// ── 찜한 상품 탭 ───────────────────────────────────────────
+function WishlistTab() {
+  const { slugs } = useWishlist();
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchWishlist()
+      .then((d) => setItems(d.items))
+      .catch(() => setItems([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  // 컨텍스트 slugs와 동기화 — 이 페이지에서 찜 해제하면 카드가 즉시 사라진다
+  const visible = items.filter((p) => slugs.includes(p.id));
+
+  if (loading) return <div className="py-8 text-center text-mute">불러오는 중…</div>;
+  if (visible.length === 0) {
+    return (
+      <div className="py-12 text-center">
+        <p className="text-[14px] text-mute">찜한 상품이 없습니다.</p>
+        <Link to="/" className="mt-6 inline-block border border-ink px-6 py-2.5 text-sm hover:bg-tint">
+          쇼핑하러 가기
+        </Link>
+      </div>
+    );
+  }
+  return (
+    <div className="grid grid-cols-2 gap-x-4 gap-y-9 md:grid-cols-3">
+      {visible.map((p) => (
+        <ProductCard key={p.id} product={p} />
+      ))}
+    </div>
+  );
+}
+
 const TABS = [
   { id: 'profile', label: '내 정보' },
   { id: 'address', label: '배송지 관리' },
   { id: 'orders', label: '주문 내역' },
+  { id: 'wishlist', label: '찜한 상품' },
 ];
 
 export default function MyPage() {
   const { user, deleteAccount } = useAuth();
   const nav = useNavigate();
-  const [tab, setTab] = useState('profile');
+  const [params, setParams] = useSearchParams();
+  // 탭 상태를 URL에서 직접 파생 — 이미 마이페이지에 있을 때 ?tab= 링크를 눌러도 즉시 전환됨
+  const tabParam = params.get('tab');
+  const tab = TABS.some((t) => t.id === tabParam) ? tabParam : 'profile';
+
+  const selectTab = (id) => {
+    setParams(id === 'profile' ? {} : { tab: id }, { replace: true });
+  };
 
   const onDelete = async () => {
     if (!window.confirm('정말 탈퇴하시겠어요? 계정 정보가 삭제됩니다.')) return;
@@ -346,7 +392,7 @@ export default function MyPage() {
         {/* side nav */}
         <nav className="flex gap-2 md:flex-col md:gap-0 md:border-r md:border-line md:pr-6">
           {TABS.map((t) => (
-            <button key={t.id} onClick={() => setTab(t.id)}
+            <button key={t.id} onClick={() => selectTab(t.id)}
               className={`whitespace-nowrap px-2 py-2.5 text-left text-sm transition-colors ${
                 tab === t.id ? 'font-semibold text-ink' : 'text-mute hover:text-ink'
               }`}>
@@ -364,6 +410,7 @@ export default function MyPage() {
           {tab === 'profile' && <ProfileTab />}
           {tab === 'address' && <AddressTab />}
           {tab === 'orders' && <OrdersTab />}
+          {tab === 'wishlist' && <WishlistTab />}
         </div>
       </div>
     </div>

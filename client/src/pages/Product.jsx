@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import ProductCard from '../components/ProductCard.jsx';
+import Stars from '../components/Stars.jsx';
+import WishButton from '../components/WishButton.jsx';
+import ReviewSection from '../components/ReviewSection.jsx';
 import { fetchProductBySlug, fetchProducts } from '../lib/products.js';
 import { Loading } from '../components/Loading.jsx';
+import useDocumentTitle from '../lib/useDocumentTitle.js';
 import { won, discountRate } from '../lib/format.js';
 import { useCart } from '../lib/cart.jsx';
 
@@ -26,11 +30,15 @@ export default function Product() {
   const [opt, setOpt] = useState('');
   const [qty, setQty] = useState(1);
   const [added, setAdded] = useState(false);
+  const [mainImg, setMainImg] = useState(0);
+
+  useDocumentTitle(product?.name);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setQty(1);
+    setMainImg(0);
     Promise.all([fetchProductBySlug(id), fetchProducts({ limit: 100 })])
       .then(([p, all]) => {
         if (!active) return;
@@ -44,6 +52,9 @@ export default function Product() {
       active = false;
     };
   }, [id]);
+
+  // 리뷰 작성/삭제 후 상품 평점 헤더 갱신
+  const refreshProduct = () => fetchProductBySlug(id).then(setProduct).catch(() => {});
 
   if (loading) return <Loading />;
 
@@ -61,6 +72,7 @@ export default function Product() {
 
   const rate = discountRate(product.price, product.compareAt);
   const soldout = product.status === 'soldout';
+  const images = product.images?.length ? product.images : [product.image];
 
   const onAdd = () => {
     add(product.id, qty, opt);
@@ -89,16 +101,44 @@ export default function Product() {
         {/* Gallery */}
         <div>
           <div className="overflow-hidden bg-tint">
-            <img src={product.image} alt={product.ko} className="aspect-[4/5] w-full object-cover" />
+            <img src={images[mainImg]} alt={product.ko} className="aspect-[4/5] w-full object-cover" />
           </div>
+          {images.length > 1 && (
+            <div className="mt-3 flex gap-2">
+              {images.map((src, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setMainImg(i)}
+                  aria-label={`${i + 1}번 이미지 보기`}
+                  className={`h-16 w-16 overflow-hidden bg-tint ring-1 transition ${
+                    i === mainImg ? 'ring-ink' : 'ring-line hover:ring-mute'
+                  }`}
+                >
+                  <img src={src} alt="" className="h-full w-full object-cover" />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Info (sticky) */}
         <div className="md:pt-2">
           <div className="md:sticky md:top-36">
-            <p className="text-[13px] font-semibold tracking-wide text-mute">{product.brand}</p>
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-[13px] font-semibold tracking-wide text-mute">{product.brand}</p>
+              <WishButton slug={product.id} size="text-2xl" />
+            </div>
             <h1 className="mt-1.5 text-2xl font-bold tracking-tight sm:text-[26px]">{product.name}</h1>
             <p className="mt-1 text-[14px] text-mute">{product.ko}</p>
+            {product.ratingCount > 0 && (
+              <div className="mt-2 flex items-center gap-1.5">
+                <Stars value={product.ratingAvg} size="text-[13px]" />
+                <span className="text-[13px] text-mute">
+                  {product.ratingAvg.toFixed(1)} ({product.ratingCount})
+                </span>
+              </div>
+            )}
             {soldout && (
               <span className="mt-3 inline-block bg-ink px-2 py-1 text-[11px] font-medium tracking-wide text-paper">
                 SOLD OUT
@@ -200,9 +240,17 @@ export default function Product() {
         </div>
       </section>
 
+      {/* reviews */}
+      <ReviewSection
+        slug={product.id}
+        ratingAvg={product.ratingAvg}
+        ratingCount={product.ratingCount}
+        onChanged={refreshProduct}
+      />
+
       {/* related */}
       {related.length > 0 && (
-        <section className="mx-auto max-w-[1280px] px-5 pt-8">
+        <section className="mx-auto max-w-[1280px] px-5 pt-16">
           <h2 className="mb-6 text-xl font-bold tracking-tight">함께 보면 좋은</h2>
           <div className="grid grid-cols-2 gap-x-4 gap-y-9 md:grid-cols-4">
             {related.map((p) => (

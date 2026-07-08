@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import ProductCard from '../components/ProductCard.jsx';
 import { fetchProducts } from '../lib/products.js';
 import { Loading, LoadError } from '../components/Loading.jsx';
+import useDocumentTitle from '../lib/useDocumentTitle.js';
 
 const TYPE_LABEL = {
   Table: '테이블 램프',
@@ -22,6 +23,8 @@ export default function CategoryList() {
   const { type } = useParams();
   const [params, setParams] = useSearchParams();
   const sort = params.get('sort') || 'new';
+
+  useDocumentTitle(TYPE_LABEL[type] || '카테고리');
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);

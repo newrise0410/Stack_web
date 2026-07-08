@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom';
 import { won, discountRate } from '../lib/format.js';
+import Stars from './Stars.jsx';
+import WishButton from './WishButton.jsx';
 
 // 29CM-style card: large image, then small brand / name / discount+price.
 export default function ProductCard({ product, rank }) {
@@ -24,6 +26,11 @@ export default function ProductCard({ product, rank }) {
           loading="lazy"
           className="aspect-[4/5] w-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04]"
         />
+        <WishButton
+          slug={product.id}
+          size="text-lg"
+          className="absolute bottom-2 right-2 z-10 grid h-8 w-8 place-items-center rounded-full bg-paper/85 backdrop-blur-sm"
+        />
       </div>
 
       <div className="pt-3">
@@ -36,6 +43,12 @@ export default function ProductCard({ product, rank }) {
             <span className="text-xs text-faint line-through">{won(product.compareAt)}원</span>
           )}
         </div>
+        {product.ratingCount > 0 && (
+          <div className="mt-1 flex items-center gap-1">
+            <Stars value={product.ratingAvg} size="text-[10px]" />
+            <span className="text-[11px] text-faint">({product.ratingCount})</span>
+          </div>
+        )}
       </div>
     </Link>
   );

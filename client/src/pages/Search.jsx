@@ -2,10 +2,13 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import ProductCard from '../components/ProductCard.jsx';
 import { fetchProducts } from '../lib/products.js';
+import useDocumentTitle from '../lib/useDocumentTitle.js';
 
 export default function Search() {
   const [params, setParams] = useSearchParams();
   const q = params.get('q') || '';
+
+  useDocumentTitle(q ? `'${q}' 검색` : '검색');
 
   const [input, setInput] = useState(q);
   const [items, setItems] = useState([]);

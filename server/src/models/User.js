@@ -92,7 +92,7 @@ const userSchema = new Schema(
 
     agreements: { type: agreementsSchema, default: () => ({}) },
     addresses: { type: [addressSchema], default: [] },
-    wishlist: [{ type: Schema.Types.ObjectId, ref: 'Product' }],
+    wishlist: { type: [String], default: [] }, // 찜한 상품 slug 목록
   },
   {
     timestamps: true, // ← createdAt, updatedAt 자동 생성/갱신

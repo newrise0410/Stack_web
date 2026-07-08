@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import ProductCard from '../components/ProductCard.jsx';
 import { fetchProducts } from '../lib/products.js';
 import { Loading, LoadError } from '../components/Loading.jsx';
+import useDocumentTitle from '../lib/useDocumentTitle.js';
 
 function SectionHead({ title, tagline, href }) {
   return (
@@ -41,6 +42,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const { hash } = useLocation();
+
+  useDocumentTitle();
 
   useEffect(() => {
     fetchProducts({ limit: 100 })
