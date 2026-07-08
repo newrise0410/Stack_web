@@ -1,0 +1,159 @@
+import { useEffect, useState } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { fetchOrder, setOrderStatus, ORDER_STATUS_LABEL } from '../../lib/admin.js';
+import { won } from '../../lib/format.js';
+import StatusBadge from '../../components/admin/StatusBadge.jsx';
+
+// 백엔드 TRANSITIONS와 동일 (현재 상태에서 가능한 다음 상태)
+const NEXT = {
+  pending: ['paid', 'cancelled'],
+  paid: ['preparing', 'cancelled'],
+  preparing: ['shipped', 'cancelled'],
+  shipped: ['delivered'],
+  delivered: [],
+  cancelled: [],
+};
+
+export default function OrderDetail() {
+  const { id } = useParams();
+  const [o, setO] = useState(null);
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [courier, setCourier] = useState('');
+  const [tracking, setTracking] = useState('');
+
+  const load = () =>
+    fetchOrder(id)
+      .then((d) => {
+        setO(d);
+        setCourier(d.courier || '');
+        setTracking(d.trackingNumber || '');
+      })
+      .catch(() => setErr('주문을 불러오지 못했습니다.'));
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  const change = async (next) => {
+    if (next === 'cancelled' && !window.confirm('이 주문을 취소할까요?')) return;
+    setBusy(true);
+    try {
+      const body = { status: next };
+      if (next === 'shipped') {
+        if (!tracking.trim()) {
+          window.alert('송장번호를 입력해주세요.');
+          setBusy(false);
+          return;
+        }
+        body.courier = courier.trim();
+        body.trackingNumber = tracking.trim();
+      }
+      const updated = await setOrderStatus(id, body);
+      setO(updated);
+    } catch (e) {
+      window.alert(e.response?.data?.message || '상태 변경에 실패했습니다.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (err) return <p className="py-12 text-center text-mute">{err}</p>;
+  if (!o) return <p className="py-12 text-center text-mute">불러오는 중…</p>;
+  const nexts = NEXT[o.status] || [];
+  const showTracking = o.trackingNumber || o.status === 'shipped' || o.status === 'delivered';
+
+  return (
+    <div className="max-w-3xl">
+      <Link to="/admin/orders" className="text-[13px] text-mute hover:text-ink">← 주문 목록</Link>
+      <div className="mt-3 flex items-center gap-3">
+        <h1 className="text-2xl font-bold tracking-tight">{o.orderNumber}</h1>
+        <StatusBadge status={o.status} />
+      </div>
+      <p className="mt-1 text-[13px] text-mute">{o.createdAt?.slice(0, 16).replace('T', ' ')}</p>
+
+      <section className="mt-6 grid gap-6 md:grid-cols-2">
+        <div className="border border-line p-4 text-sm">
+          <h2 className="mb-2 font-semibold">고객</h2>
+          <p>{o.user?.name || '-'}</p>
+          <p className="text-mute">{o.user?.email || '-'}</p>
+        </div>
+        <div className="border border-line p-4 text-sm">
+          <h2 className="mb-2 font-semibold">배송지</h2>
+          <p>{o.shippingAddress.recipient} · {o.shippingAddress.phone}</p>
+          <p className="text-mute">({o.shippingAddress.zipcode}) {o.shippingAddress.address1} {o.shippingAddress.address2}</p>
+          {o.shippingAddress.deliveryMemo && (
+            <p className="mt-1 text-[12px] text-faint">메모: {o.shippingAddress.deliveryMemo}</p>
+          )}
+        </div>
+      </section>
+
+      <section className="mt-6">
+        <h2 className="mb-2 font-semibold">주문 상품</h2>
+        <ul className="divide-y divide-line border-y border-line text-sm">
+          {o.items.map((it, i) => (
+            <li key={i} className="flex items-center gap-3 py-3">
+              <img src={it.image} alt="" className="h-12 w-12 bg-tint object-cover" />
+              <div className="flex-1">
+                <p className="font-medium">{it.name}</p>
+                <p className="text-[12px] text-mute">{it.option && `${it.option} · `}수량 {it.qty}</p>
+              </div>
+              <span>{won(it.price * it.qty)}원</span>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-3 flex justify-between text-sm">
+          <span className="text-mute">배송비</span>
+          <span>{o.amounts.shippingFee === 0 ? '무료' : `${won(o.amounts.shippingFee)}원`}</span>
+        </div>
+        <div className="mt-1 flex justify-between font-bold">
+          <span>결제금액</span>
+          <span>{won(o.amounts.grandTotal)}원</span>
+        </div>
+      </section>
+
+      {showTracking && (
+        <p className="mt-4 text-[13px] text-mute">송장: {o.courier || '-'} {o.trackingNumber || '-'}</p>
+      )}
+
+      {nexts.length > 0 && (
+        <section className="mt-8 border-t border-line pt-6">
+          <h2 className="mb-3 font-semibold">상태 변경</h2>
+          {nexts.includes('shipped') && (
+            <div className="mb-3 grid gap-2 sm:grid-cols-2">
+              <input
+                value={courier}
+                onChange={(e) => setCourier(e.target.value)}
+                placeholder="택배사"
+                className="border border-line px-3 py-2 text-sm focus:border-ink focus:outline-none"
+              />
+              <input
+                value={tracking}
+                onChange={(e) => setTracking(e.target.value)}
+                placeholder="송장번호 (배송중 전환 시 필수)"
+                className="border border-line px-3 py-2 text-sm focus:border-ink focus:outline-none"
+              />
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            {nexts.map((n) => (
+              <button
+                key={n}
+                disabled={busy}
+                onClick={() => change(n)}
+                className={`px-5 py-2.5 text-sm font-medium disabled:opacity-50 ${
+                  n === 'cancelled'
+                    ? 'border border-line text-sale hover:bg-tint'
+                    : 'bg-ink text-paper hover:bg-ink/85'
+                }`}
+              >
+                {ORDER_STATUS_LABEL[n]}(으)로 변경
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}

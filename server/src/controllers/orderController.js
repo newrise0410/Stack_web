@@ -222,14 +222,17 @@ export async function updateOrderStatus(req, res) {
   // 취소 전이 시 판매량 원복 (cancelled는 종료라 재가산 경로 없음)
   if (willCancel) await adjustSales(order.items, -1);
 
+  await order.populate('user', 'name email'); // 응답 일관성 (상세 화면 고객정보 유지)
   res.json(order);
 }
 
 // 주문 상세 — GET /orders/:id (requireAuth, 본인/admin)
 export async function getOrder(req, res) {
-  const order = await Order.findById(req.params.id);
+  const order = await Order.findById(req.params.id).populate('user', 'name email');
   if (!order) return res.status(404).json({ message: '주문을 찾을 수 없습니다.' });
-  if (String(order.user) !== String(req.user._id) && req.user.role !== 'admin') {
+  // populate 후 order.user는 객체 → 소유권 비교는 _id로
+  const ownerId = order.user?._id || order.user;
+  if (String(ownerId) !== String(req.user._id) && req.user.role !== 'admin') {
     return res.status(403).json({ message: '접근 권한이 없습니다.' });
   }
   res.json(order);
