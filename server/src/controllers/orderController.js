@@ -139,13 +139,33 @@ export async function listMyOrders(req, res) {
   res.json({ page, limit, total, items });
 }
 
-// 전체 주문 목록 — GET /orders/admin (admin)
+// 전체 주문 목록 — GET /orders/admin (admin). ?status=&from=&to=&q=&page=&limit=
+const ORDER_STATES = ['pending', 'paid', 'preparing', 'shipped', 'delivered', 'cancelled'];
 export async function listAllOrders(req, res) {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 30));
+
+  const filter = {};
+  const status = String(req.query.status || '');
+  if (ORDER_STATES.includes(status)) filter.status = status;
+
+  const from = req.query.from ? new Date(String(req.query.from)) : null;
+  const to = req.query.to ? new Date(String(req.query.to)) : null;
+  if (from && !Number.isNaN(from.getTime())) filter.createdAt = { ...(filter.createdAt || {}), $gte: from };
+  if (to && !Number.isNaN(to.getTime())) {
+    to.setHours(23, 59, 59, 999);
+    filter.createdAt = { ...(filter.createdAt || {}), $lte: to };
+  }
+
+  const q = String(req.query.q || '').trim();
+  if (q) {
+    const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    filter.$or = [{ orderNumber: rx }, { 'shippingAddress.recipient': rx }];
+  }
+
   const [items, total] = await Promise.all([
-    Order.find().sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit),
-    Order.countDocuments(),
+    Order.find(filter).populate('user', 'name email').sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit),
+    Order.countDocuments(filter),
   ]);
   res.json({ page, limit, total, items });
 }
@@ -167,23 +187,40 @@ export async function cancelOrder(req, res) {
 }
 
 // 주문 상태 변경 — PATCH /orders/:id/status (admin)
-const ADMIN_STATUSES = ['paid', 'preparing', 'shipped', 'delivered', 'cancelled'];
+// 허용 전이만 강제하는 상태머신. cancelled는 종료(되돌리기 없음).
+const TRANSITIONS = {
+  pending: ['paid', 'cancelled'],
+  paid: ['preparing', 'cancelled'],
+  preparing: ['shipped', 'cancelled'],
+  shipped: ['delivered', 'shipped'], // 동일상태 재요청 = 송장 수정용
+  delivered: [],
+  cancelled: [],
+};
+
 export async function updateOrderStatus(req, res) {
   const next = String(req.body.status || '');
-  if (!ADMIN_STATUSES.includes(next)) {
-    return res.status(400).json({ message: '허용되지 않은 주문 상태입니다.' });
-  }
   const order = await Order.findById(req.params.id);
   if (!order) return res.status(404).json({ message: '주문을 찾을 수 없습니다.' });
 
-  const wasCancelled = order.status === 'cancelled';
+  const allowed = TRANSITIONS[order.status] || [];
+  if (!allowed.includes(next)) {
+    return res.status(400).json({ message: `'${order.status}' 상태에서 '${next}'(으)로 변경할 수 없습니다.` });
+  }
+
+  // 배송중 전환/송장 수정 시 송장번호 필수
+  if (next === 'shipped') {
+    const tn = String(req.body.trackingNumber || '').trim();
+    if (!tn) return res.status(400).json({ message: '송장번호를 입력해주세요.' });
+    order.courier = String(req.body.courier || '').trim();
+    order.trackingNumber = tn;
+  }
+
   const willCancel = next === 'cancelled';
   order.status = next;
   await order.save();
 
-  // 취소 전이/취소 해제에 따라 판매량 가감 (중복 가감 방지)
-  if (willCancel && !wasCancelled) await adjustSales(order.items, -1);
-  else if (!willCancel && wasCancelled) await adjustSales(order.items, +1);
+  // 취소 전이 시 판매량 원복 (cancelled는 종료라 재가산 경로 없음)
+  if (willCancel) await adjustSales(order.items, -1);
 
   res.json(order);
 }

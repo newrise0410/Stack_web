@@ -46,6 +46,8 @@ const orderSchema = new Schema(
       default: 'pending',
     },
     paymentMethod: { type: String, default: 'mock' }, // 실 PG 미연동(스터디)
+    courier: { type: String, default: '' }, // 택배사 (배송중 전환 시)
+    trackingNumber: { type: String, default: '' }, // 송장번호
   },
   { timestamps: true },
 );

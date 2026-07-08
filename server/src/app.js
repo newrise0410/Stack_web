@@ -8,6 +8,7 @@ import productsRouter from './routes/products.js';
 import ordersRouter from './routes/orders.js';
 import reviewsRouter from './routes/reviews.js';
 import wishlistRouter from './routes/wishlist.js';
+import adminRouter from './routes/admin.js';
 import { notFound, errorHandler } from './middleware/errorHandler.js';
 
 // Build and configure the Express application.
@@ -36,6 +37,7 @@ export function createApp() {
   app.use('/orders', ordersRouter);
   app.use('/reviews', reviewsRouter);
   app.use('/wishlist', wishlistRouter);
+  app.use('/admin', adminRouter);
 
   app.use(notFound); // 404 fallback
   app.use(errorHandler); // 중앙 에러 핸들러
