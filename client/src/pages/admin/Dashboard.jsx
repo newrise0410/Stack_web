@@ -10,7 +10,11 @@ export default function Dashboard() {
   const [err, setErr] = useState('');
 
   useEffect(() => {
-    fetchStats().then(setS).catch(() => setErr('통계를 불러오지 못했습니다.'));
+    let active = true;
+    fetchStats()
+      .then((d) => active && setS(d))
+      .catch(() => active && setErr('통계를 불러오지 못했습니다.'));
+    return () => { active = false; };
   }, []);
 
   if (err) return <p className="py-12 text-center text-mute">{err}</p>;

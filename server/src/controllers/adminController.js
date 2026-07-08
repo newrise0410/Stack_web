@@ -62,7 +62,8 @@ export async function getStats(req, res) {
     toHandle: (byStatus.paid || 0) + (byStatus.preparing || 0),
     members: { total: memberCounts[0], newToday: memberCounts[1] },
     products: {
-      total: productAgg.reduce((a, r) => a + r.n, 0),
+      // archived(소프트삭제)는 제외 → 카드 합(active+soldout+draft)과 total이 일치
+      total: productAgg.filter((r) => r._id !== 'archived').reduce((a, r) => a + r.n, 0),
       active: prodByStatus.active || 0,
       soldout: prodByStatus.soldout || 0,
       draft: prodByStatus.draft || 0,

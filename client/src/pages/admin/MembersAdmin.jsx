@@ -4,14 +4,28 @@ import api from '../../lib/api.js';
 export default function MembersAdmin() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  useEffect(() => {
+  const load = () => {
+    setLoading(true);
+    setError('');
     api.get('/users', { params: { limit: 100 } })
       .then(({ data }) => setItems(data.items))
+      .catch(() => setError('회원 목록을 불러오지 못했습니다.'))
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { load(); }, []);
 
   if (loading) return <p className="py-8 text-center text-mute">불러오는 중…</p>;
+  if (error) {
+    return (
+      <div className="py-8 text-center">
+        <p className="text-mute">{error}</p>
+        <button onClick={load} className="mt-4 border border-ink px-6 py-2.5 text-sm hover:bg-tint">다시 시도</button>
+      </div>
+    );
+  }
 
   return (
     <div className="overflow-x-auto">

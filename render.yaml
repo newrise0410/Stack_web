@@ -13,6 +13,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: TZ
+        value: Asia/Seoul # 대시보드/주문 필터의 '오늘·이달' 경계를 KST 기준으로
       - key: MONGODB_URI
         sync: false # MongoDB Atlas 연결 문자열
       - key: JWT_SECRET

@@ -65,37 +65,43 @@ export default function OrdersAdmin() {
 
       {loading ? (
         <p className="py-10 text-center text-mute">불러오는 중…</p>
-      ) : data.items.length === 0 ? (
+      ) : data.total === 0 ? (
         <p className="py-10 text-center text-mute">주문이 없습니다.</p>
       ) : (
-        <div className="mt-5 overflow-x-auto">
+        <div className="mt-5">
           <p className="mb-2 text-[13px] text-mute">총 {data.total}건</p>
-          <table className="w-full min-w-[720px] text-sm">
-            <thead>
-              <tr className="border-y border-line text-left text-[12px] text-mute">
-                <th className="py-2 pr-3">주문번호</th>
-                <th className="py-2 pr-3">일자</th>
-                <th className="py-2 pr-3">고객</th>
-                <th className="py-2 pr-3">금액</th>
-                <th className="py-2 pr-3">상태</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.items.map((o) => (
-                <tr
-                  key={o._id}
-                  onClick={() => nav(`/admin/orders/${o._id}`)}
-                  className="cursor-pointer border-b border-line hover:bg-tint/40"
-                >
-                  <td className="py-3 pr-3 font-medium">{o.orderNumber}</td>
-                  <td className="py-3 pr-3 text-[12px] text-mute">{o.createdAt?.slice(0, 10)}</td>
-                  <td className="py-3 pr-3">{o.user?.name || o.shippingAddress?.recipient || '-'}</td>
-                  <td className="py-3 pr-3">{won(o.amounts.grandTotal)}원</td>
-                  <td className="py-3 pr-3"><StatusBadge status={o.status} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {data.items.length === 0 ? (
+            <p className="py-10 text-center text-mute">이 페이지에 표시할 주문이 없습니다.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] text-sm">
+                <thead>
+                  <tr className="border-y border-line text-left text-[12px] text-mute">
+                    <th className="py-2 pr-3">주문번호</th>
+                    <th className="py-2 pr-3">일자</th>
+                    <th className="py-2 pr-3">고객</th>
+                    <th className="py-2 pr-3">금액</th>
+                    <th className="py-2 pr-3">상태</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.items.map((o) => (
+                    <tr
+                      key={o._id}
+                      onClick={() => nav(`/admin/orders/${o._id}`)}
+                      className="cursor-pointer border-b border-line hover:bg-tint/40"
+                    >
+                      <td className="py-3 pr-3 font-medium">{o.orderNumber}</td>
+                      <td className="py-3 pr-3 text-[12px] text-mute">{o.createdAt?.slice(0, 10)}</td>
+                      <td className="py-3 pr-3">{o.user?.name || o.shippingAddress?.recipient || '-'}</td>
+                      <td className="py-3 pr-3">{won(o.amounts.grandTotal)}원</td>
+                      <td className="py-3 pr-3"><StatusBadge status={o.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           <Pagination page={page} total={data.total} limit={data.limit} onPage={(p) => patch({ page: String(p) })} />
         </div>
       )}

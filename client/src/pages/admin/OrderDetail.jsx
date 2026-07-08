@@ -5,11 +5,12 @@ import { won } from '../../lib/format.js';
 import StatusBadge from '../../components/admin/StatusBadge.jsx';
 
 // 백엔드 TRANSITIONS와 동일 (현재 상태에서 가능한 다음 상태)
+// shipped→shipped는 송장 수정용(백엔드 동일상태 재요청 허용)
 const NEXT = {
   pending: ['paid', 'cancelled'],
   paid: ['preparing', 'cancelled'],
   preparing: ['shipped', 'cancelled'],
-  shipped: ['delivered'],
+  shipped: ['delivered', 'shipped'],
   delivered: [],
   cancelled: [],
 };
@@ -22,18 +23,21 @@ export default function OrderDetail() {
   const [courier, setCourier] = useState('');
   const [tracking, setTracking] = useState('');
 
-  const load = () =>
-    fetchOrder(id)
-      .then((d) => {
-        setO(d);
-        setCourier(d.courier || '');
-        setTracking(d.trackingNumber || '');
-      })
-      .catch(() => setErr('주문을 불러오지 못했습니다.'));
+  const apply = (d) => {
+    setO(d);
+    setCourier(d.courier || '');
+    setTracking(d.trackingNumber || '');
+  };
 
+  // 주문 전환/언마운트 시 이전 요청 응답이 새 화면을 덮지 않게 가드
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let active = true;
+    setO(null);
+    setErr('');
+    fetchOrder(id)
+      .then((d) => active && apply(d))
+      .catch(() => active && setErr('주문을 불러오지 못했습니다.'));
+    return () => { active = false; };
   }, [id]);
 
   const change = async (next) => {
@@ -51,7 +55,7 @@ export default function OrderDetail() {
         body.trackingNumber = tracking.trim();
       }
       const updated = await setOrderStatus(id, body);
-      setO(updated);
+      apply(updated);
     } catch (e) {
       window.alert(e.response?.data?.message || '상태 변경에 실패했습니다.');
     } finally {
@@ -137,20 +141,25 @@ export default function OrderDetail() {
             </div>
           )}
           <div className="flex flex-wrap gap-2">
-            {nexts.map((n) => (
-              <button
-                key={n}
-                disabled={busy}
-                onClick={() => change(n)}
-                className={`px-5 py-2.5 text-sm font-medium disabled:opacity-50 ${
-                  n === 'cancelled'
-                    ? 'border border-line text-sale hover:bg-tint'
-                    : 'bg-ink text-paper hover:bg-ink/85'
-                }`}
-              >
-                {ORDER_STATUS_LABEL[n]}(으)로 변경
-              </button>
-            ))}
+            {nexts.map((n) => {
+              const isTrackingEdit = o.status === 'shipped' && n === 'shipped';
+              return (
+                <button
+                  key={n}
+                  disabled={busy}
+                  onClick={() => change(n)}
+                  className={`px-5 py-2.5 text-sm font-medium disabled:opacity-50 ${
+                    n === 'cancelled'
+                      ? 'border border-line text-sale hover:bg-tint'
+                      : isTrackingEdit
+                        ? 'border border-ink hover:bg-tint'
+                        : 'bg-ink text-paper hover:bg-ink/85'
+                  }`}
+                >
+                  {isTrackingEdit ? '송장 수정 저장' : `${ORDER_STATUS_LABEL[n]}(으)로 변경`}
+                </button>
+              );
+            })}
           </div>
         </section>
       )}

@@ -151,7 +151,11 @@ export async function listAllOrders(req, res) {
 
   const from = req.query.from ? new Date(String(req.query.from)) : null;
   const to = req.query.to ? new Date(String(req.query.to)) : null;
-  if (from && !Number.isNaN(from.getTime())) filter.createdAt = { ...(filter.createdAt || {}), $gte: from };
+  // from/to 모두 서버 로컬(TZ=Asia/Seoul) 하루 경계로 정규화해 기준을 맞춘다
+  if (from && !Number.isNaN(from.getTime())) {
+    from.setHours(0, 0, 0, 0);
+    filter.createdAt = { ...(filter.createdAt || {}), $gte: from };
+  }
   if (to && !Number.isNaN(to.getTime())) {
     to.setHours(23, 59, 59, 999);
     filter.createdAt = { ...(filter.createdAt || {}), $lte: to };
