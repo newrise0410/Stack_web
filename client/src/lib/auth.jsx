@@ -3,6 +3,17 @@ import api from './api.js';
 
 const AuthContext = createContext(null);
 const TOKEN_KEY = 'sns_token';
+const DEVICE_KEY = 'sns_device';
+
+// 브라우저별 고유 식별자 (mock 소셜 계정 분리용). 없으면 생성해 저장.
+function getDeviceId() {
+  let id = localStorage.getItem(DEVICE_KEY);
+  if (!id) {
+    id = (window.crypto?.randomUUID?.() || `d${Date.now()}${Math.random().toString(36).slice(2)}`);
+    localStorage.setItem(DEVICE_KEY, id);
+  }
+  return id;
+}
 
 // axios 기본 헤더에 Bearer 토큰 설정/해제
 function setAuthHeader(token) {
@@ -37,6 +48,16 @@ export function AuthProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 401 인터셉터가 알린 세션 만료 → 로컬 상태 정리 (보호 페이지는 자동으로 /login 유도됨)
+  useEffect(() => {
+    const onUnauthorized = () => {
+      setUser(null);
+      setToken(null);
+    };
+    window.addEventListener('sns-unauthorized', onUnauthorized);
+    return () => window.removeEventListener('sns-unauthorized', onUnauthorized);
+  }, []);
+
   const applyAuth = useCallback((tok, usr) => {
     localStorage.setItem(TOKEN_KEY, tok);
     setAuthHeader(tok);
@@ -65,7 +86,7 @@ export function AuthProvider({ children }) {
   // 소셜 로그인 (POST /auth/social) — mock 제공자로 로그인/가입
   const socialLogin = useCallback(
     async (provider) => {
-      const { data } = await api.post('/auth/social', { provider });
+      const { data } = await api.post('/auth/social', { provider, deviceId: getDeviceId() });
       applyAuth(data.token, data.user);
       return data.user;
     },

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import ProductCard from '../components/ProductCard.jsx';
 import { fetchProductBySlug, fetchProducts } from '../lib/products.js';
+import { Loading } from '../components/Loading.jsx';
 import { won, discountRate } from '../lib/format.js';
 import { useCart } from '../lib/cart.jsx';
 
@@ -17,6 +18,7 @@ function Spec({ label, value }) {
 export default function Product() {
   const { id } = useParams();
   const { add } = useCart();
+  const nav = useNavigate();
 
   const [product, setProduct] = useState(null);
   const [related, setRelated] = useState([]);
@@ -43,9 +45,7 @@ export default function Product() {
     };
   }, [id]);
 
-  if (loading) {
-    return <div className="mx-auto max-w-[1280px] px-5 py-24 text-center text-mute">불러오는 중…</div>;
-  }
+  if (loading) return <Loading />;
 
   if (!product) {
     return (
@@ -60,11 +60,17 @@ export default function Product() {
   }
 
   const rate = discountRate(product.price, product.compareAt);
+  const soldout = product.status === 'soldout';
 
   const onAdd = () => {
-    add(product.id, qty);
+    add(product.id, qty, opt);
     setAdded(true);
     setTimeout(() => setAdded(false), 1600);
+  };
+
+  const onBuyNow = () => {
+    add(product.id, qty, opt);
+    nav('/checkout');
   };
 
   return (
@@ -93,6 +99,11 @@ export default function Product() {
             <p className="text-[13px] font-semibold tracking-wide text-mute">{product.brand}</p>
             <h1 className="mt-1.5 text-2xl font-bold tracking-tight sm:text-[26px]">{product.name}</h1>
             <p className="mt-1 text-[14px] text-mute">{product.ko}</p>
+            {soldout && (
+              <span className="mt-3 inline-block bg-ink px-2 py-1 text-[11px] font-medium tracking-wide text-paper">
+                SOLD OUT
+              </span>
+            )}
 
             <div className="mt-5 flex items-baseline gap-2">
               {rate > 0 && <span className="text-2xl font-bold text-sale">{rate}%</span>}
@@ -126,7 +137,7 @@ export default function Product() {
               <div className="flex items-center gap-4">
                 <button className="text-lg leading-none text-mute hover:text-ink" onClick={() => setQty((q) => Math.max(1, q - 1))}>−</button>
                 <span className="w-6 text-center text-sm">{qty}</span>
-                <button className="text-lg leading-none text-mute hover:text-ink" onClick={() => setQty((q) => q + 1)}>+</button>
+                <button className="text-lg leading-none text-mute hover:text-ink" onClick={() => setQty((q) => Math.min(99, q + 1))}>+</button>
               </div>
             </div>
 
@@ -137,17 +148,29 @@ export default function Product() {
             </div>
 
             {/* actions */}
-            <div className="mt-4 flex gap-2.5">
+            {soldout ? (
               <button
-                onClick={onAdd}
-                className="flex-1 border border-ink py-4 text-sm font-medium transition-colors hover:bg-tint"
+                disabled
+                className="mt-4 w-full cursor-not-allowed border border-line bg-tint py-4 text-sm font-medium text-mute"
               >
-                {added ? '장바구니 담김 ✓' : '장바구니'}
+                품절된 상품입니다
               </button>
-              <button className="flex-1 bg-ink py-4 text-sm font-medium text-paper transition-colors hover:bg-ink/85">
-                바로 구매
-              </button>
-            </div>
+            ) : (
+              <div className="mt-4 flex gap-2.5">
+                <button
+                  onClick={onAdd}
+                  className="flex-1 border border-ink py-4 text-sm font-medium transition-colors hover:bg-tint"
+                >
+                  {added ? '장바구니 담김 ✓' : '장바구니'}
+                </button>
+                <button
+                  onClick={onBuyNow}
+                  className="flex-1 bg-ink py-4 text-sm font-medium text-paper transition-colors hover:bg-ink/85"
+                >
+                  바로 구매
+                </button>
+              </div>
+            )}
 
             {/* spec */}
             <dl className="mt-9 divide-y divide-line border-y border-line">

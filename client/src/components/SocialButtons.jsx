@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth.jsx';
 
 const KakaoIcon = () => (
@@ -36,6 +36,7 @@ const PROVIDERS = [
 export default function SocialButtons() {
   const { socialLogin } = useAuth();
   const nav = useNavigate();
+  const from = useLocation().state?.from;
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
 
@@ -43,7 +44,7 @@ export default function SocialButtons() {
     setErr(''); setBusy(id);
     try {
       await socialLogin(id);
-      nav('/welcome', { replace: true });
+      nav(from || '/welcome', { replace: true });
     } catch {
       setErr('소셜 로그인에 실패했습니다.');
       setBusy('');

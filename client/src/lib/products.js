@@ -10,6 +10,7 @@ export function normalizeProduct(p) {
     ko: p.nameKo,
     type: p.type,
     category: p.category,
+    status: p.status,
     image: p.images?.[0],
     price: p.price,
     compareAt: p.compareAtPrice,

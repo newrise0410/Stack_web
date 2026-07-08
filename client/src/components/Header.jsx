@@ -2,7 +2,14 @@ import { Link } from 'react-router-dom';
 import { useCart } from '../lib/cart.jsx';
 import { useAuth } from '../lib/auth.jsx';
 
-const CATS = ['BEST', 'TABLE', 'PENDANT', 'MOON', 'SHOWCASE', 'PT'];
+const CATS = [
+  { label: 'BEST', to: '/#best' },
+  { label: 'TABLE', to: '/category/Table' },
+  { label: 'PENDANT', to: '/category/Pendant' },
+  { label: 'MOON', to: '/category/MoonWall' },
+  { label: 'SHOWCASE', to: '/category/all' },
+  { label: 'PT', to: '/#pt' },
+];
 
 export default function Header() {
   const { count } = useCart();
@@ -38,17 +45,17 @@ export default function Header() {
         </Link>
 
         <div className="flex items-center gap-4 text-sm">
-          <button aria-label="검색" className="hidden text-mute hover:text-ink sm:block">
+          <Link to="/search" aria-label="검색" className="text-mute hover:text-ink">
             검색
-          </button>
-          <button className="relative flex items-center gap-1.5" aria-label={`장바구니 ${count}개`}>
+          </Link>
+          <Link to="/cart" className="relative flex items-center gap-1.5" aria-label={`장바구니 ${count}개`}>
             <span>SHOPPING BAG</span>
             {count > 0 && (
               <span className="grid h-4 min-w-4 place-items-center rounded-full bg-sale px-1 text-[10px] font-bold text-paper">
                 {count}
               </span>
             )}
-          </button>
+          </Link>
         </div>
       </div>
 
@@ -56,13 +63,13 @@ export default function Header() {
       <nav className="border-t border-line">
         <div className="mx-auto flex max-w-[1280px] items-center gap-6 overflow-x-auto px-5 py-3 text-[13px] font-medium">
           {CATS.map((c) => (
-            <a
-              key={c}
-              href={`#${c.toLowerCase()}`}
+            <Link
+              key={c.label}
+              to={c.to}
               className="whitespace-nowrap text-ink/85 transition-colors hover:text-ink"
             >
-              {c}
-            </a>
+              {c.label}
+            </Link>
           ))}
         </div>
       </nav>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import api from '../lib/api.js';
 import { won } from '../lib/format.js';
+import { fetchAllOrders, updateOrderStatus } from '../lib/orders.js';
 
 const inputCls =
   'w-full border border-line px-3 py-2 text-sm focus:border-ink focus:outline-none';
@@ -154,12 +155,15 @@ function ProductForm({ initial, onDone, onCancel }) {
 function ProductsAdmin() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [editing, setEditing] = useState(null); // product | 'new' | null
 
   const load = useCallback(() => {
     setLoading(true);
-    api.get('/products', { params: { limit: 100 } })
+    setError('');
+    api.get('/products/admin')
       .then(({ data }) => setItems(data.items))
+      .catch(() => setError('상품 목록을 불러오지 못했습니다.'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -188,6 +192,11 @@ function ProductsAdmin() {
 
       {loading ? (
         <p className="py-8 text-center text-mute">불러오는 중…</p>
+      ) : error ? (
+        <div className="py-8 text-center">
+          <p className="text-mute">{error}</p>
+          <button onClick={load} className="mt-4 border border-ink px-6 py-2.5 text-sm hover:bg-tint">다시 시도</button>
+        </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
@@ -275,6 +284,82 @@ function UsersAdmin() {
   );
 }
 
+const ORDER_STATUSES = ['paid', 'preparing', 'shipped', 'delivered', 'cancelled'];
+const ORDER_STATUS_LABEL = {
+  pending: '결제대기', paid: '결제완료', preparing: '제작중',
+  shipped: '배송중', delivered: '배송완료', cancelled: '취소',
+};
+
+function OrdersAdmin() {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetchAllOrders()
+      .then(setOrders)
+      .catch(() => setError('주문을 불러오지 못했습니다.'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const onChangeStatus = async (id, status) => {
+    try {
+      const updated = await updateOrderStatus(id, status);
+      setOrders((prev) => prev.map((o) => (o._id === id ? updated : o)));
+    } catch (e) {
+      window.alert(e.response?.data?.message || '상태 변경 실패');
+    }
+  };
+
+  if (loading) return <p className="py-8 text-center text-mute">불러오는 중…</p>;
+  if (error) return <p className="py-8 text-center text-mute">{error}</p>;
+  if (orders.length === 0) return <p className="py-8 text-center text-mute">주문이 없습니다.</p>;
+
+  return (
+    <div className="overflow-x-auto">
+      <p className="mb-4 text-[13px] text-mute">총 {orders.length}건</p>
+      <table className="w-full min-w-[820px] text-sm">
+        <thead>
+          <tr className="border-y border-line text-left text-[12px] text-mute">
+            <th className="py-2 pr-3">주문번호</th>
+            <th className="py-2 pr-3">일자</th>
+            <th className="py-2 pr-3">상품</th>
+            <th className="py-2 pr-3">금액</th>
+            <th className="py-2 pr-3">상태</th>
+          </tr>
+        </thead>
+        <tbody>
+          {orders.map((o) => (
+            <tr key={o._id} className="border-b border-line align-top">
+              <td className="py-3 pr-3 font-medium">{o.orderNumber}</td>
+              <td className="py-3 pr-3 text-[12px] text-mute">{o.createdAt?.slice(0, 10)}</td>
+              <td className="py-3 pr-3">
+                {o.items.map((it, i) => (
+                  <p key={i} className="text-[12px]">
+                    {it.name} {it.option && `(${it.option})`} × {it.qty}
+                  </p>
+                ))}
+              </td>
+              <td className="py-3 pr-3">{won(o.amounts.grandTotal)}원</td>
+              <td className="py-3 pr-3">
+                <select
+                  value={o.status}
+                  onChange={(e) => onChangeStatus(o._id, e.target.value)}
+                  className="border border-line px-2 py-1.5 text-[13px] focus:border-ink focus:outline-none"
+                >
+                  {ORDER_STATUSES.map((s) => (
+                    <option key={s} value={s}>{ORDER_STATUS_LABEL[s]}</option>
+                  ))}
+                </select>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 const TABS = [
   { id: 'products', label: '상품 관리' },
   { id: 'users', label: '회원' },
@@ -301,7 +386,7 @@ export default function Admin() {
       <div className="pt-8">
         {tab === 'products' && <ProductsAdmin />}
         {tab === 'users' && <UsersAdmin />}
-        {tab === 'orders' && <div className="py-8 text-center text-mute">주문 관리는 준비 중입니다.</div>}
+        {tab === 'orders' && <OrdersAdmin />}
       </div>
     </div>
   );

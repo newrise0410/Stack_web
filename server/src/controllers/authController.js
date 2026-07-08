@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import User from '../models/User.js';
 import { buildAndSaveUser } from './userController.js';
 import { signToken } from '../utils/jwt.js';
@@ -29,37 +30,48 @@ export async function login(req, res) {
   res.json({ token, user });
 }
 
-// 스터디용 mock 소셜 프로필. 실제 OAuth 연동 시 이 부분을 제공자 응답으로 교체.
-const SOCIAL_DEMO = {
-  google: { providerId: 'google-demo-001', email: 'google.demo@stacknstak.test', name: '구글 사용자' },
-  apple: { providerId: 'apple-demo-001', email: 'apple.demo@stacknstak.test', name: '애플 사용자' },
-  kakao: { providerId: 'kakao-demo-001', email: 'kakao.demo@stacknstak.test', name: '카카오 사용자' },
-  naver: { providerId: 'naver-demo-001', email: 'naver.demo@stacknstak.test', name: '네이버 사용자' },
-};
+// 스터디용 mock 소셜 로그인. 실제 OAuth 아님.
+const SOCIAL_LABEL = { google: '구글', apple: '애플', kakao: '카카오', naver: '네이버' };
 
-// 소셜 로그인 — POST /auth/social { provider }
-// provider+providerId로 계정을 찾고 없으면 생성(find-or-create) 후 토큰 발급.
+// 소셜 로그인 — POST /auth/social { provider, deviceId }
+// ⚠️ 계정 분리: 브라우저별 고유 deviceId로 providerId를 만들어 방문자마다 별도 계정 생성.
+// (고정 데모계정을 쓰면 공개 배포에서 방문자끼리 배송지·주문내역이 공유돼 PII가 유출됨)
 export async function socialLogin(req, res) {
   const provider = String(req.body.provider || '').toLowerCase();
-  const demo = SOCIAL_DEMO[provider];
-  if (!demo) {
+  if (!SOCIAL_LABEL[provider]) {
     return res.status(400).json({ message: '지원하지 않는 소셜 로그인입니다.' });
   }
 
-  let user = await User.findOne({ provider, providerId: demo.providerId });
+  // 클라가 보낸 브라우저 식별자만 허용문자로 정제. 없으면 무작위 발급(항상 새 계정).
+  const raw = String(req.body.deviceId || '').replace(/[^a-zA-Z0-9-]/g, '').slice(0, 40);
+  const deviceId = raw || randomUUID();
+  const providerId = `${provider}-${deviceId}`;
+
+  let user = await User.findOne({ provider, providerId });
   if (!user) {
     const now = new Date();
-    user = await User.create({
-      provider,
-      providerId: demo.providerId,
-      email: demo.email,
-      name: demo.name,
-      agreements: {
-        termsOfService: { agreed: true, at: now, version: '1.0' },
-        privacy: { agreed: true, at: now, version: '1.0' },
-        ageOver14: { agreed: true, at: now },
-      },
-    });
+    try {
+      user = await User.create({
+        provider,
+        providerId,
+        // providerId와 동일한 전체 deviceId로 이메일을 만들어 접두 충돌을 피한다
+        email: `${provider}.${deviceId.toLowerCase()}@social.demo`,
+        name: `${SOCIAL_LABEL[provider]} 사용자`,
+        agreements: {
+          termsOfService: { agreed: true, at: now, version: '1.0' },
+          privacy: { agreed: true, at: now, version: '1.0' },
+          ageOver14: { agreed: true, at: now },
+        },
+      });
+    } catch (e) {
+      // 동시 최초 로그인(탭 2개 등) 경합 → 이미 생성된 계정을 재조회
+      if (e.code === 11000) {
+        user = await User.findOne({ provider, providerId });
+        if (!user) throw e;
+      } else {
+        throw e;
+      }
+    }
   }
 
   const token = signToken(user);

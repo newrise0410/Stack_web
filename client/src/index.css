@@ -30,6 +30,10 @@
   img {
     -webkit-user-drag: none;
   }
+  /* sticky 헤더가 앵커 스크롤 대상 섹션을 가리지 않도록 */
+  section[id] {
+    scroll-margin-top: 9rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

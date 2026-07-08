@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import ProductCard from '../components/ProductCard.jsx';
 import { fetchProducts } from '../lib/products.js';
+import { Loading, LoadError } from '../components/Loading.jsx';
 
 function SectionHead({ title, tagline, href }) {
   return (
@@ -39,6 +40,7 @@ export default function Home() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const { hash } = useLocation();
 
   useEffect(() => {
     fetchProducts({ limit: 100 })
@@ -47,15 +49,18 @@ export default function Home() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) {
-    return <div className="mx-auto max-w-[1280px] px-5 py-24 text-center text-mute">불러오는 중…</div>;
-  }
-  if (error || products.length === 0) {
-    return (
-      <div className="mx-auto max-w-[1280px] px-5 py-24 text-center text-mute">
-        {error || '등록된 상품이 없습니다.'}
-      </div>
-    );
+  // 다른 페이지에서 /#best, /#pt 로 진입하면 해당 섹션으로 스크롤
+  useEffect(() => {
+    if (loading || !hash) return;
+    // getElementById는 잘못된 해시에도 throw하지 않고 null 반환
+    const el = document.getElementById(hash.slice(1));
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [loading, hash]);
+
+  if (loading) return <Loading />;
+  if (error) return <LoadError message={error} />;
+  if (products.length === 0) {
+    return <div className="mx-auto max-w-[1280px] px-5 py-24 text-center text-mute">등록된 상품이 없습니다.</div>;
   }
 
   const byId = (id) => products.find((p) => p.id === id);
@@ -70,7 +75,7 @@ export default function Home() {
   return (
     <>
       {/* ── Hero banner ──────────────────────────────────── */}
-      <section id="best" className="relative">
+      <section id="hero" className="relative">
         <Link to={`/objects/${hero.id}`} className="group block">
           <div className="relative h-[62vh] min-h-[420px] w-full overflow-hidden bg-tint">
             <img
@@ -133,7 +138,7 @@ export default function Home() {
       </section>
 
       {/* ── Best (ranking) ───────────────────────────────── */}
-      <section className="mx-auto max-w-[1280px] px-5 pt-20">
+      <section id="best" className="mx-auto max-w-[1280px] px-5 pt-20">
         <SectionHead title="지금 가장 인기 있는" tagline="주간 판매 랭킹" />
         <Grid items={best.slice(0, 4)} ranked />
       </section>

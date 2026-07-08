@@ -1,6 +1,8 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth.jsx';
+import { fetchMyOrders, cancelOrder } from '../lib/orders.js';
+import { won } from '../lib/format.js';
 import PostcodeModal from '../components/PostcodeModal.jsx';
 
 const inputCls =
@@ -215,12 +217,106 @@ function AddressTab() {
   );
 }
 
-// ── 주문내역 탭 (준비 중) ──────────────────────────────────
+// ── 주문내역 탭 ────────────────────────────────────────────
+const STATUS_LABEL = {
+  pending: '결제 대기',
+  paid: '결제 완료',
+  preparing: '제작 중',
+  shipped: '배송 중',
+  delivered: '배송 완료',
+  cancelled: '취소',
+};
+
+const CANCELLABLE = ['paid', 'preparing'];
+
 function OrdersTab() {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetchMyOrders()
+      .then(setOrders)
+      .catch(() => setError('주문 내역을 불러오지 못했습니다.'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const onCancel = async (id) => {
+    if (!window.confirm('이 주문을 취소하시겠어요?')) return;
+    try {
+      const updated = await cancelOrder(id);
+      setOrders((prev) => prev.map((o) => (o._id === id ? updated : o)));
+    } catch (e) {
+      window.alert(e.response?.data?.message || '주문 취소에 실패했습니다.');
+    }
+  };
+
+  if (loading) return <div className="py-8 text-center text-mute">불러오는 중…</div>;
+  if (error) {
+    return (
+      <div className="py-12 text-center">
+        <p className="text-[14px] text-mute">{error}</p>
+        <button onClick={() => window.location.reload()} className="mt-4 border border-ink px-6 py-2.5 text-sm hover:bg-tint">
+          다시 시도
+        </button>
+      </div>
+    );
+  }
+
+  if (orders.length === 0) {
+    return (
+      <div className="py-12 text-center">
+        <p className="text-[14px] text-mute">주문 내역이 없습니다.</p>
+        <Link to="/" className="mt-6 inline-block border border-ink px-6 py-2.5 text-sm hover:bg-tint">
+          쇼핑하러 가기
+        </Link>
+      </div>
+    );
+  }
+
   return (
-    <div className="py-8 text-center text-[14px] text-mute">
-      주문 기능은 준비 중입니다.
-    </div>
+    <ul className="space-y-4">
+      {orders.map((o) => (
+        <li key={o._id} className="border border-line">
+          <div className="flex items-center justify-between border-b border-line bg-tint/50 px-5 py-3 text-[13px]">
+            <div>
+              <span className="font-semibold">{o.orderNumber}</span>
+              <span className="ml-2 text-mute">{o.createdAt?.slice(0, 10)}</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className={`font-medium ${o.status === 'cancelled' ? 'text-faint' : 'text-ink'}`}>
+                {STATUS_LABEL[o.status] || o.status}
+              </span>
+              {CANCELLABLE.includes(o.status) && (
+                <button onClick={() => onCancel(o._id)} className="text-[12px] text-mute underline-offset-2 hover:text-sale hover:underline">
+                  주문 취소
+                </button>
+              )}
+            </div>
+          </div>
+          <ul className="divide-y divide-line px-5">
+            {o.items.map((it, i) => (
+              <li key={i} className="flex items-center gap-3 py-3">
+                <img src={it.image} alt="" className="h-14 w-14 bg-tint object-cover" />
+                <div className="flex-1">
+                  <p className="text-[13px] font-medium">{it.name}</p>
+                  <p className="text-[12px] text-mute">
+                    {it.option && `${it.option} · `}수량 {it.qty}
+                  </p>
+                </div>
+                <span className="text-[13px]">{won(it.price * it.qty)}원</span>
+              </li>
+            ))}
+          </ul>
+          <div className="flex justify-between border-t border-line px-5 py-3 text-[13px]">
+            <span className="text-mute">
+              결제금액 {o.amounts.shippingFee === 0 ? '(무료배송)' : `(배송비 ${won(o.amounts.shippingFee)}원)`}
+            </span>
+            <span className="font-bold">{won(o.amounts.grandTotal)}원</span>
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
 

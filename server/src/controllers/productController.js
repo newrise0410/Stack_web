@@ -13,9 +13,15 @@ const SORTS = {
   priceDesc: { price: -1 },
 };
 
+// 쿼리 파라미터를 문자열로 강제해 객체 주입($ne/$text 오염 등)을 차단
+const str = (v) => (v == null ? '' : String(Array.isArray(v) ? v[0] : v));
+
 // READ (list) — GET /products?type=Table&badge=NEW&q=&sort=new&page=1&limit=24
 export async function listProducts(req, res) {
-  const { type, badge, q, sort } = req.query;
+  const type = str(req.query.type);
+  const badge = str(req.query.badge);
+  const q = str(req.query.q);
+  const sort = str(req.query.sort);
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 24));
 
@@ -31,10 +37,18 @@ export async function listProducts(req, res) {
   res.json({ page, limit, total, items });
 }
 
-// READ (one) — GET /products/:slug
+// READ (list, admin) — GET /products/admin — 모든 status 반환 (관리용)
+export async function listAllProducts(req, res) {
+  const items = await Product.find().sort({ createdAt: -1 });
+  res.json({ items });
+}
+
+// READ (one) — GET /products/:slug — 공개는 active/soldout만, draft/archived는 숨김
 export async function getProduct(req, res) {
   const product = await Product.findOne({ slug: req.params.slug });
-  if (!product) return res.status(404).json({ message: '상품을 찾을 수 없습니다.' });
+  if (!product || !['active', 'soldout'].includes(product.status)) {
+    return res.status(404).json({ message: '상품을 찾을 수 없습니다.' });
+  }
   res.json(product);
 }
 

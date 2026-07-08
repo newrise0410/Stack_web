@@ -11,6 +11,8 @@ services:
     startCommand: npm start
     healthCheckPath: /health
     envVars:
+      - key: NODE_ENV
+        value: production
       - key: MONGODB_URI
         sync: false # MongoDB Atlas 연결 문자열
       - key: JWT_SECRET

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth.jsx';
 import SocialButtons from '../components/SocialButtons.jsx';
 
@@ -9,6 +9,7 @@ const inputCls =
 export default function Login() {
   const { login } = useAuth();
   const nav = useNavigate();
+  const from = useLocation().state?.from; // 보호 페이지에서 넘어온 경우 복귀 경로
   const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -21,7 +22,7 @@ export default function Login() {
     setBusy(true);
     try {
       await login(form.email, form.password);
-      nav('/welcome', { replace: true });
+      nav(from || '/welcome', { replace: true });
     } catch (err) {
       setError(err.response?.data?.message || '로그인에 실패했습니다.');
     } finally {

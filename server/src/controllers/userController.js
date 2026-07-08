@@ -1,21 +1,22 @@
 import User from '../models/User.js';
 import { pick } from '../utils/pick.js';
 
-// 클라이언트가 지정할 수 있는 필드 화이트리스트 (role 등은 제외)
+// 클라이언트가 지정할 수 있는 필드 화이트리스트.
+// provider/providerId/role/verified 플래그는 제외 — 소셜계정 선점·권한상승·인증 우회 방지.
 const CREATE_FIELDS = [
   'email', 'password', 'name', 'nickname', 'phone',
-  'provider', 'providerId', 'agreements', 'addresses',
+  'agreements', 'addresses',
 ];
 const UPDATE_FIELDS = [
-  'name', 'nickname', 'phone', 'password',
-  'agreements', 'addresses', 'emailVerified', 'phoneVerified',
+  'name', 'nickname', 'phone', 'password', 'agreements', 'addresses',
 ];
 
 // 회원 생성 공용 로직 — 회원가입(auth)과 관리자 생성(users)에서 공유.
-// role은 항상 client로 강제(권한 상승 방지).
+// role/provider는 항상 서버가 강제(권한 상승·소셜 계정 위장 방지).
 export async function buildAndSaveUser(body) {
   const data = pick(body, CREATE_FIELDS);
   data.role = 'client';
+  data.provider = 'local';
   return User.create(data); // save 훅에서 비번 해싱
 }
 

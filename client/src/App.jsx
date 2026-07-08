@@ -9,6 +9,10 @@ import Signup from './pages/Signup.jsx';
 import MyPage from './pages/MyPage.jsx';
 import Admin from './pages/Admin.jsx';
 import Welcome from './pages/Welcome.jsx';
+import Cart from './pages/Cart.jsx';
+import Checkout from './pages/Checkout.jsx';
+import CategoryList from './pages/CategoryList.jsx';
+import Search from './pages/Search.jsx';
 
 export default function App() {
   return (
@@ -16,9 +20,20 @@ export default function App() {
       <Route element={<Layout />}>
         <Route path="/" element={<Home />} />
         <Route path="/objects/:id" element={<Product />} />
+        <Route path="/category/:type" element={<CategoryList />} />
+        <Route path="/search" element={<Search />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/welcome" element={<Welcome />} />
+        <Route path="/cart" element={<Cart />} />
+        <Route
+          path="/checkout"
+          element={
+            <RequireAuth>
+              <Checkout />
+            </RequireAuth>
+          }
+        />
         <Route
           path="/mypage"
           element={
