@@ -1,12 +1,28 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import * as adminController from '../controllers/adminController.js';
 import * as emailController from '../controllers/emailController.js';
 import * as couponController from '../controllers/couponController.js';
 import * as pointController from '../controllers/pointController.js';
+import * as uploadController from '../controllers/uploadController.js';
 
 const router = Router();
+
+// 이미지 업로드용 multer(메모리 버퍼, 5MB 제한). 멀티파트 에러는 400으로 정규화.
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+function uploadSingle(req, res, next) {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ message: '이미지는 5MB 이하만 업로드할 수 있습니다.' });
+      }
+      return res.status(400).json({ message: '이미지 업로드 처리 중 오류가 발생했습니다.' });
+    }
+    return next();
+  });
+}
 
 router.get('/stats', requireAuth, requireAdmin, asyncHandler(adminController.getStats));
 router.get('/analytics', requireAuth, requireAdmin, asyncHandler(adminController.getAnalytics));
@@ -21,5 +37,7 @@ router.post('/members/:id/coupons', requireAuth, requireAdmin, asyncHandler(coup
 router.post('/members/:id/points', requireAuth, requireAdmin, asyncHandler(pointController.adjustMemberPoints));
 
 router.get('/members/:id', requireAuth, requireAdmin, asyncHandler(adminController.getMember));
+
+router.post('/uploads', requireAuth, requireAdmin, uploadSingle, asyncHandler(uploadController.uploadImage));
 
 export default router;
