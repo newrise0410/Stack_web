@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { fetchOrder, setOrderStatus, ORDER_STATUS_LABEL } from '../../lib/admin.js';
+import { useToast } from '../../lib/toast.jsx';
 import { won } from '../../lib/format.js';
 import StatusBadge from '../../components/admin/StatusBadge.jsx';
 
@@ -17,6 +18,7 @@ const NEXT = {
 
 export default function OrderDetail() {
   const { id } = useParams();
+  const toast = useToast();
   const [o, setO] = useState(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -47,7 +49,7 @@ export default function OrderDetail() {
       const body = { status: next };
       if (next === 'shipped') {
         if (!tracking.trim()) {
-          window.alert('송장번호를 입력해주세요.');
+          toast.error('송장번호를 입력해주세요.');
           setBusy(false);
           return;
         }
@@ -56,8 +58,9 @@ export default function OrderDetail() {
       }
       const updated = await setOrderStatus(id, body);
       apply(updated);
+      toast.success('주문 상태를 변경했습니다.');
     } catch (e) {
-      window.alert(e.response?.data?.message || '상태 변경에 실패했습니다.');
+      toast.error(e.response?.data?.message || '상태 변경에 실패했습니다.');
     } finally {
       setBusy(false);
     }

@@ -16,6 +16,7 @@ import ProductsAdmin from './pages/admin/ProductsAdmin.jsx';
 import MembersAdmin from './pages/admin/MembersAdmin.jsx';
 import MemberDetail from './pages/admin/MemberDetail.jsx';
 import ReviewsAdmin from './pages/admin/ReviewsAdmin.jsx';
+import Analytics from './pages/admin/Analytics.jsx';
 import Cart from './pages/Cart.jsx';
 import Checkout from './pages/Checkout.jsx';
 import CategoryList from './pages/CategoryList.jsx';
@@ -67,6 +68,7 @@ export default function App() {
         <Route path="members" element={<MembersAdmin />} />
         <Route path="members/:id" element={<MemberDetail />} />
         <Route path="reviews" element={<ReviewsAdmin />} />
+        <Route path="analytics" element={<Analytics />} />
       </Route>
     </Routes>
   );

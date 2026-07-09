@@ -72,6 +72,57 @@ export async function getStats(req, res) {
   });
 }
 
+// 분석 — GET /admin/analytics?period=7d|30d|12m (admin)
+const TZ = 'Asia/Seoul';
+export async function getAnalytics(req, res) {
+  const period = ['7d', '30d', '12m'].includes(req.query.period) ? req.query.period : '30d';
+  const start = new Date();
+  let fmt;
+  if (period === '12m') {
+    start.setMonth(start.getMonth() - 11);
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+    fmt = '%Y-%m';
+  } else {
+    const days = period === '7d' ? 7 : 30;
+    start.setDate(start.getDate() - (days - 1));
+    start.setHours(0, 0, 0, 0);
+    fmt = '%Y-%m-%d';
+  }
+
+  const [agg] = await Order.aggregate([
+    { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: start } } },
+    {
+      $facet: {
+        series: [
+          { $group: { _id: { $dateToString: { format: fmt, date: '$createdAt', timezone: TZ } }, revenue: { $sum: '$amounts.grandTotal' }, orders: { $sum: 1 } } },
+          { $sort: { _id: 1 } },
+        ],
+        bestSellers: [
+          { $unwind: '$items' },
+          { $group: { _id: '$items.name', units: { $sum: '$items.qty' }, revenue: { $sum: { $multiply: ['$items.price', '$items.qty'] } } } },
+          { $sort: { revenue: -1 } },
+          { $limit: 5 },
+        ],
+        typeSales: [
+          { $unwind: '$items' },
+          { $lookup: { from: 'products', localField: 'items.product', foreignField: '_id', as: 'p' } },
+          { $unwind: { path: '$p', preserveNullAndEmptyArrays: true } },
+          { $group: { _id: { $ifNull: ['$p.type', '기타'] }, revenue: { $sum: { $multiply: ['$items.price', '$items.qty'] } }, units: { $sum: '$items.qty' } } },
+          { $sort: { revenue: -1 } },
+        ],
+      },
+    },
+  ]);
+
+  res.json({
+    period,
+    series: agg.series.map((r) => ({ label: r._id, revenue: r.revenue, orders: r.orders })),
+    bestSellers: agg.bestSellers.map((r) => ({ name: r._id, units: r.units, revenue: r.revenue })),
+    typeSales: agg.typeSales.map((r) => ({ type: r._id, revenue: r.revenue, units: r.units })),
+  });
+}
+
 // 회원 상세 — GET /admin/members/:id (admin). 프로필 + 주문 + 집계.
 export async function getMember(req, res) {
   const user = await User.findById(req.params.id);

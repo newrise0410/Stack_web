@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { fetchMember, setUserRole, setUserStatus } from '../../lib/admin.js';
+import { useToast } from '../../lib/toast.jsx';
 import { won } from '../../lib/format.js';
 import StatCard from '../../components/admin/StatCard.jsx';
 import StatusBadge from '../../components/admin/StatusBadge.jsx';
 
 export default function MemberDetail() {
   const { id } = useParams();
+  const toast = useToast();
   const [d, setD] = useState(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -29,8 +31,9 @@ export default function MemberDetail() {
     setBusy(true);
     try {
       updateUser(await setUserRole(id, next));
+      toast.success('역할을 변경했습니다.');
     } catch (e) {
-      window.alert(e.response?.data?.message || '역할 변경 실패');
+      toast.error(e.response?.data?.message || '역할 변경에 실패했습니다.');
     } finally {
       setBusy(false);
     }
@@ -42,8 +45,9 @@ export default function MemberDetail() {
     setBusy(true);
     try {
       updateUser(await setUserStatus(id, next));
+      toast.success(next === 'suspended' ? '계정을 정지했습니다.' : '정지를 해제했습니다.');
     } catch (e) {
-      window.alert(e.response?.data?.message || '상태 변경 실패');
+      toast.error(e.response?.data?.message || '상태 변경에 실패했습니다.');
     } finally {
       setBusy(false);
     }

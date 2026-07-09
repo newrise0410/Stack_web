@@ -15,6 +15,12 @@ export async function fetchStats() {
   return data;
 }
 
+// 분석 (period: 7d|30d|12m)
+export async function fetchAnalytics(period = '30d') {
+  const { data } = await api.get('/admin/analytics', { params: { period } });
+  return data;
+}
+
 // 주문 목록 (필터: status, q, from, to, page, limit)
 export async function fetchAdminOrders(params = {}) {
   const { data } = await api.get('/orders/admin', { params });

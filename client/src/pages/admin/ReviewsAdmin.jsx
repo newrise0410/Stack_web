@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { fetchAdminReviews, setReviewHidden, deleteReviewAdmin } from '../../lib/admin.js';
+import { useToast } from '../../lib/toast.jsx';
 import Stars from '../../components/Stars.jsx';
 import Pagination from '../../components/admin/Pagination.jsx';
 
 export default function ReviewsAdmin() {
+  const toast = useToast();
   const [params, setParams] = useSearchParams();
   const product = params.get('product') || '';
   const page = Math.max(1, parseInt(params.get('page'), 10) || 1);
@@ -40,8 +42,9 @@ export default function ReviewsAdmin() {
     try {
       const updated = await setReviewHidden(r._id, !r.hidden);
       setData((d) => ({ ...d, items: d.items.map((x) => (x._id === r._id ? { ...x, hidden: updated.hidden } : x)) }));
+      toast.success(updated.hidden ? '리뷰를 숨겼습니다.' : '숨김을 해제했습니다.');
     } catch {
-      window.alert('숨김 처리에 실패했습니다.');
+      toast.error('숨김 처리에 실패했습니다.');
     }
   };
 
@@ -49,9 +52,12 @@ export default function ReviewsAdmin() {
     if (!window.confirm('이 리뷰를 삭제할까요?')) return;
     try {
       await deleteReviewAdmin(r._id);
-      setData((d) => ({ ...d, items: d.items.filter((x) => x._id !== r._id), total: d.total - 1 }));
+      toast.success('리뷰를 삭제했습니다.');
+      // 마지막 페이지의 마지막 항목 삭제 시 빈 페이지에 갇히지 않게: 마지막 항목이면 이전 페이지로, 아니면 재조회
+      if (data.items.length === 1 && page > 1) patch({ page: String(page - 1) });
+      else load();
     } catch {
-      window.alert('삭제에 실패했습니다.');
+      toast.error('삭제에 실패했습니다.');
     }
   };
 
@@ -89,6 +95,9 @@ export default function ReviewsAdmin() {
       ) : (
         <div className="mt-5">
           <p className="mb-2 text-[13px] text-mute">총 {data.total}건</p>
+          {data.items.length === 0 ? (
+            <p className="py-10 text-center text-mute">이 페이지에 표시할 리뷰가 없습니다.</p>
+          ) : (
           <ul className="divide-y divide-line border-y border-line">
             {data.items.map((r) => (
               <li key={r._id} className={`py-4 ${r.hidden ? 'opacity-50' : ''}`}>
@@ -115,6 +124,7 @@ export default function ReviewsAdmin() {
               </li>
             ))}
           </ul>
+          )}
           <Pagination page={page} total={data.total} limit={data.limit} onPage={(p) => patch({ page: String(p) })} />
         </div>
       )}

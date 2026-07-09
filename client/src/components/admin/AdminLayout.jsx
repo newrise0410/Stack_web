@@ -7,6 +7,7 @@ const NAV = [
   { to: '/admin/products', label: '상품' },
   { to: '/admin/members', label: '회원' },
   { to: '/admin/reviews', label: '리뷰' },
+  { to: '/admin/analytics', label: '분석' },
 ];
 
 export default function AdminLayout() {

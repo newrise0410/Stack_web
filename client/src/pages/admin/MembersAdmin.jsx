@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { fetchMembers, setUserRole, setUserStatus } from '../../lib/admin.js';
+import { useToast } from '../../lib/toast.jsx';
 import Pagination from '../../components/admin/Pagination.jsx';
 
 export default function MembersAdmin() {
+  const toast = useToast();
   const [params, setParams] = useSearchParams();
   const nav = useNavigate();
   const q = params.get('q') || '';
@@ -13,8 +15,10 @@ export default function MembersAdmin() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [term, setTerm] = useState(q);
+  const [reloadKey, setReloadKey] = useState(0);
 
-  const load = () => {
+  // effect로만 실행 → 반환하는 취소함수가 항상 cleanup으로 동작(재시도도 effect 생명주기로)
+  useEffect(() => {
     let active = true;
     setLoading(true);
     setError('');
@@ -23,10 +27,10 @@ export default function MembersAdmin() {
       .catch(() => active && setError('회원 목록을 불러오지 못했습니다.'))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  };
-
-  useEffect(load, [q, page]);
+  }, [q, page, reloadKey]);
   useEffect(() => { setTerm(q); }, [q]);
+
+  const retry = () => setReloadKey((k) => k + 1);
 
   const patch = (obj) =>
     setParams((prev) => {
@@ -43,8 +47,9 @@ export default function MembersAdmin() {
     try {
       const updated = await setUserRole(u._id, next);
       setData((d) => ({ ...d, items: d.items.map((x) => (x._id === u._id ? updated : x)) }));
+      toast.success('역할을 변경했습니다.');
     } catch (err) {
-      window.alert(err.response?.data?.message || '역할 변경 실패');
+      toast.error(err.response?.data?.message || '역할 변경에 실패했습니다.');
     }
   };
 
@@ -55,8 +60,9 @@ export default function MembersAdmin() {
     try {
       const updated = await setUserStatus(u._id, next);
       setData((d) => ({ ...d, items: d.items.map((x) => (x._id === u._id ? updated : x)) }));
+      toast.success(next === 'suspended' ? '계정을 정지했습니다.' : '정지를 해제했습니다.');
     } catch (err) {
-      window.alert(err.response?.data?.message || '상태 변경 실패');
+      toast.error(err.response?.data?.message || '상태 변경에 실패했습니다.');
     }
   };
 
@@ -82,13 +88,16 @@ export default function MembersAdmin() {
       ) : error ? (
         <div className="py-8 text-center">
           <p className="text-mute">{error}</p>
-          <button onClick={load} className="mt-4 border border-ink px-6 py-2.5 text-sm hover:bg-tint">다시 시도</button>
+          <button onClick={retry} className="mt-4 border border-ink px-6 py-2.5 text-sm hover:bg-tint">다시 시도</button>
         </div>
       ) : data.total === 0 ? (
         <p className="py-10 text-center text-mute">회원이 없습니다.</p>
       ) : (
         <div className="mt-5">
           <p className="mb-2 text-[13px] text-mute">총 {data.total}명</p>
+          {data.items.length === 0 ? (
+            <p className="py-10 text-center text-mute">이 페이지에 표시할 회원이 없습니다.</p>
+          ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-sm">
               <thead>
@@ -134,6 +143,7 @@ export default function MembersAdmin() {
               </tbody>
             </table>
           </div>
+          )}
           <Pagination page={page} total={data.total} limit={data.limit} onPage={(p) => patch({ page: String(p) })} />
         </div>
       )}

@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import api from '../../lib/api.js';
 import { won } from '../../lib/format.js';
 import { fetchAdminProducts, patchProduct } from '../../lib/admin.js';
+import { useToast } from '../../lib/toast.jsx';
 import Stars from '../../components/Stars.jsx';
 import Pagination from '../../components/admin/Pagination.jsx';
 
@@ -191,6 +192,7 @@ function ProductForm({ initial, onDone, onCancel }) {
 }
 
 export default function ProductsAdmin() {
+  const toast = useToast();
   const [params, setParams] = useSearchParams();
   const q = params.get('q') || '';
   const type = params.get('type') || '';
@@ -231,9 +233,10 @@ export default function ProductsAdmin() {
     if (!window.confirm(`'${slug}' 상품을 삭제할까요?`)) return;
     try {
       await api.delete(`/products/${slug}`);
+      toast.success('상품을 삭제했습니다.');
       load();
     } catch {
-      window.alert('삭제에 실패했습니다.');
+      toast.error('삭제에 실패했습니다.');
     }
   };
 
@@ -241,8 +244,9 @@ export default function ProductsAdmin() {
     try {
       const updated = await patchProduct(p.slug, { status: next });
       setData((d) => ({ ...d, items: d.items.map((x) => (x._id === p._id ? updated : x)) }));
+      toast.success('상태를 변경했습니다.');
     } catch {
-      window.alert('상태 변경에 실패했습니다.');
+      toast.error('상태 변경에 실패했습니다.');
     }
   };
 
@@ -290,6 +294,8 @@ export default function ProductsAdmin() {
         </div>
       ) : data.total === 0 ? (
         <p className="py-8 text-center text-mute">상품이 없습니다.</p>
+      ) : data.items.length === 0 ? (
+        <p className="py-8 text-center text-mute">이 페이지에 표시할 상품이 없습니다.</p>
       ) : (
         <>
           <div className="overflow-x-auto">

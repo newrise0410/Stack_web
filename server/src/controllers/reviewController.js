@@ -93,7 +93,8 @@ export async function listAllReviews(req, res) {
 
 // 숨김 토글 — PATCH /reviews/:id/hidden (admin)
 export async function setReviewHidden(req, res) {
-  const hidden = Boolean(req.body.hidden);
+  // 문자열 "false"/"0"이 truthy로 강제변환되지 않게 명시적으로 파싱
+  const hidden = req.body.hidden === true || req.body.hidden === 'true';
   const review = await Review.findByIdAndUpdate(req.params.id, { hidden }, { new: true });
   if (!review) return res.status(404).json({ message: '리뷰를 찾을 수 없습니다.' });
   try {
