@@ -4,6 +4,7 @@ import api from '../../lib/api.js';
 import { won } from '../../lib/format.js';
 import { fetchAdminProducts, patchProduct } from '../../lib/admin.js';
 import { useToast } from '../../lib/toast.jsx';
+import { uploadProductImage } from '../../lib/cloudinary.js';
 import Stars from '../../components/Stars.jsx';
 import Pagination from '../../components/admin/Pagination.jsx';
 
@@ -68,6 +69,21 @@ function ProductForm({ initial, onDone, onCancel }) {
   const [f, setF] = useState(initial ? toForm(initial) : emptyForm);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const toast = useToast();
+  const [uploadingId, setUploadingId] = useState(null);
+
+  const uploadTo = async (img, file) => {
+    if (!file) return;
+    setUploadingId(img.id);
+    try {
+      const { url } = await uploadProductImage(file);
+      setF((s) => ({ ...s, images: s.images.map((x) => (x.id === img.id ? { ...x, url } : x)) }));
+    } catch (e) {
+      toast.error(e.response?.data?.message || '업로드에 실패했습니다.');
+    } finally {
+      setUploadingId(null);
+    }
+  };
 
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }));
   const on = (e) => set(e.target.name, e.target.value);
@@ -131,7 +147,7 @@ function ProductForm({ initial, onDone, onCancel }) {
         </div>
 
         <div className="md:col-span-2">
-          <label className={label}>이미지 URL (순서 = 노출 순서, 첫 장이 대표)</label>
+          <label className={label}>이미지 (파일 업로드 또는 URL, 순서 = 노출 순서, 첫 장이 대표)</label>
           <div className="space-y-2">
             {f.images.map((img, i) => (
               <div key={img.id} className="flex items-center gap-2">
@@ -139,6 +155,15 @@ function ProductForm({ initial, onDone, onCancel }) {
                   {img.url && <img src={img.url} alt="" className="h-full w-full object-cover" />}
                 </div>
                 <input className={inputCls} value={img.url} onChange={(e) => setImage(i, e.target.value)} placeholder="https://..." />
+                <label className="shrink-0 cursor-pointer border border-line px-2 py-2 text-[12px] hover:bg-tint">
+                  {uploadingId === img.id ? '…' : '업로드'}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    onChange={(e) => { uploadTo(img, e.target.files?.[0]); e.target.value = ''; }}
+                  />
+                </label>
                 <button type="button" onClick={() => moveImage(i, -1)} disabled={i === 0}
                   className="px-2 text-mute hover:text-ink disabled:opacity-30" aria-label="위로">↑</button>
                 <button type="button" onClick={() => moveImage(i, 1)} disabled={i === f.images.length - 1}
