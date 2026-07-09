@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { won, discountRate } from '../lib/format.js';
 import Stars from './Stars.jsx';
 import WishButton from './WishButton.jsx';
+import { cldUrl } from '../lib/cloudinary.js';
 
 // 29CM-style card: large image, then small brand / name / discount+price.
 export default function ProductCard({ product, rank }) {
@@ -21,7 +22,7 @@ export default function ProductCard({ product, rank }) {
           </span>
         )}
         <img
-          src={product.image}
+          src={cldUrl(product.image, { w: 600 })}
           alt={product.ko}
           loading="lazy"
           className="aspect-[4/5] w-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04]"

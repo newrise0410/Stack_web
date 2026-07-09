@@ -9,6 +9,7 @@ import { Loading } from '../components/Loading.jsx';
 import useDocumentTitle from '../lib/useDocumentTitle.js';
 import { won, discountRate } from '../lib/format.js';
 import { useCart } from '../lib/cart.jsx';
+import { cldUrl } from '../lib/cloudinary.js';
 
 function Spec({ label, value }) {
   return (
@@ -101,7 +102,7 @@ export default function Product() {
         {/* Gallery */}
         <div>
           <div className="overflow-hidden bg-tint">
-            <img src={images[mainImg]} alt={product.ko} className="aspect-[4/5] w-full object-cover" />
+            <img src={cldUrl(images[mainImg], { w: 1200 })} alt={product.ko} className="aspect-[4/5] w-full object-cover" />
           </div>
           {images.length > 1 && (
             <div className="mt-3 flex gap-2">
@@ -115,7 +116,7 @@ export default function Product() {
                     i === mainImg ? 'ring-ink' : 'ring-line hover:ring-mute'
                   }`}
                 >
-                  <img src={src} alt="" className="h-full w-full object-cover" />
+                  <img src={cldUrl(src, { w: 160 })} alt="" className="h-full w-full object-cover" />
                 </button>
               ))}
             </div>
@@ -229,7 +230,7 @@ export default function Product() {
       {/* detail image */}
       <section className="mx-auto mt-16 max-w-[900px] px-5">
         <div className="overflow-hidden bg-tint">
-          <img src={product.image} alt={`${product.ko} 상세`} className="w-full object-cover" />
+          <img src={cldUrl(product.image, { w: 1200 })} alt={`${product.ko} 상세`} className="w-full object-cover" />
         </div>
         <div className="py-12 text-center">
           <h2 className="text-xl font-bold tracking-tight">층이 곧 표면입니다</h2>
