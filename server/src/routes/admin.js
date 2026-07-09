@@ -4,6 +4,7 @@ import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import * as adminController from '../controllers/adminController.js';
 import * as emailController from '../controllers/emailController.js';
 import * as couponController from '../controllers/couponController.js';
+import * as pointController from '../controllers/pointController.js';
 
 const router = Router();
 
@@ -17,6 +18,7 @@ router.post('/coupons', requireAuth, requireAdmin, asyncHandler(couponController
 router.patch('/coupons/:id', requireAuth, requireAdmin, asyncHandler(couponController.updateCoupon));
 router.delete('/coupons/:id', requireAuth, requireAdmin, asyncHandler(couponController.deleteCoupon));
 router.post('/members/:id/coupons', requireAuth, requireAdmin, asyncHandler(couponController.issueToMember));
+router.post('/members/:id/points', requireAuth, requireAdmin, asyncHandler(pointController.adjustMemberPoints));
 
 router.get('/members/:id', requireAuth, requireAdmin, asyncHandler(adminController.getMember));
 

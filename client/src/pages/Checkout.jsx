@@ -5,11 +5,13 @@ import { useAuth } from '../lib/auth.jsx';
 import { fetchProducts } from '../lib/products.js';
 import { createOrder } from '../lib/orders.js';
 import { fetchAvailableCoupons, claimCoupon } from '../lib/coupon.js';
+import { fetchMyPoints } from '../lib/points.js';
 import { won } from '../lib/format.js';
 import { Loading, LoadError } from '../components/Loading.jsx';
 
 const FREE_SHIPPING = 50000;
 const SHIPPING_FEE = 3000;
+const EARN_RATE = 0.03;
 
 export default function Checkout() {
   const { lines, clear } = useCart();
@@ -28,12 +30,19 @@ export default function Checkout() {
   const [couponCode, setCouponCode] = useState(''); // 적용한 쿠폰 코드
   const [codeInput, setCodeInput] = useState('');
   const [couponMsg, setCouponMsg] = useState('');
+  const [pointsBalance, setPointsBalance] = useState(0);
+  const [pointsLoaded, setPointsLoaded] = useState(false); // 잔액 조회 완료 여부
+  const [pointsInput, setPointsInput] = useState('');
 
   useEffect(() => {
     fetchProducts({ limit: 100 })
       .then(setCatalog)
       .catch(() => setLoadErr(true))
       .finally(() => setLoading(false));
+    fetchMyPoints()
+      .then((d) => setPointsBalance(d.balance))
+      .catch(() => setPointsBalance(0))
+      .finally(() => setPointsLoaded(true));
   }, []);
 
   const addresses = user?.addresses || [];
@@ -69,7 +78,21 @@ export default function Checkout() {
   const couponItemDiscount = selectedCoupon && !isFreeShip ? selectedCoupon.discountTotal : 0;
   const baseShipping = itemsTotal >= FREE_SHIPPING ? 0 : SHIPPING_FEE;
   const shippingFee = isFreeShip ? 0 : baseShipping;
-  const grandTotal = Math.max(0, itemsTotal - couponItemDiscount + shippingFee);
+
+  // 적립금 사용 (서버와 동일 클램프: 보유잔액·결제할금액 이내)
+  const payableBeforePoints = Math.max(0, itemsTotal - couponItemDiscount + shippingFee);
+  const maxUsablePoints = Math.min(pointsBalance, payableBeforePoints);
+  const pointsToUse = Math.min(Math.max(0, parseInt(pointsInput, 10) || 0), maxUsablePoints);
+  const grandTotal = Math.max(0, payableBeforePoints - pointsToUse);
+  const earnPreview = Math.floor(grandTotal * EARN_RATE);
+
+  // 쿠폰 적용/해제 등으로 사용가능 한도가 줄면, 입력값도 한도까지 내려 표시를 실제 사용량과 맞춘다.
+  // 단, 잔액 조회 전(pointsLoaded=false)에는 한도가 0이라 사용자가 방금 친 값을 0으로 지우지 않도록 건너뛴다.
+  useEffect(() => {
+    if (!pointsLoaded) return;
+    const entered = parseInt(pointsInput, 10) || 0;
+    if (entered > maxUsablePoints) setPointsInput(maxUsablePoints > 0 ? String(maxUsablePoints) : '');
+  }, [maxUsablePoints, pointsLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const applyCode = async (e) => {
     e.preventDefault();
@@ -111,6 +134,7 @@ export default function Checkout() {
       const order = await createOrder({
         items: rows.map((r) => ({ slug: r.id, qty: r.qty, option: r.option })),
         couponCode: selectedCoupon ? couponCode : undefined,
+        pointsToUse: pointsToUse > 0 ? pointsToUse : undefined,
         shippingAddress: {
           recipient: selectedAddr.recipient,
           phone: selectedAddr.phone,
@@ -141,6 +165,9 @@ export default function Checkout() {
         <h1 className="mt-4 text-2xl font-bold tracking-tight">주문이 완료되었습니다</h1>
         <p className="mt-3 text-[14px] text-mute">주문번호 {done.orderNumber}</p>
         <p className="mt-1 text-[14px]">결제금액 <b>{won(done.amounts.grandTotal)}원</b></p>
+        {done.pointsEarned > 0 && (
+          <p className="mt-1 text-[13px] text-mute">{won(done.pointsEarned)}P 적립되었습니다</p>
+        )}
         <div className="mt-8 flex gap-2.5">
           <Link to="/mypage" className="border border-ink px-6 py-3 text-sm font-medium hover:bg-tint">
             주문내역 보기
@@ -262,6 +289,38 @@ export default function Checkout() {
             </form>
             {couponMsg && <p className="mt-1 text-[12px] text-mute">{couponMsg}</p>}
           </section>
+
+          {/* 적립금 */}
+          <section>
+            <h2 className="mb-3 text-sm font-bold">적립금</h2>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                value={pointsInput}
+                onChange={(e) => {
+                  // 입력 즉시 [0, 사용가능한도]로 클램프 — 표시값이 실제 차감액과 어긋나지 않게 한다.
+                  // 잔액 조회 전에는 한도가 0이라 클램프하면 입력이 0으로 지워지므로, 조회 완료 후에만 클램프.
+                  const raw = e.target.value;
+                  if (raw === '') return setPointsInput('');
+                  const n = Math.max(0, parseInt(raw, 10) || 0);
+                  return setPointsInput(pointsLoaded ? String(Math.min(n, maxUsablePoints)) : String(n));
+                }}
+                placeholder="사용할 적립금"
+                max={maxUsablePoints}
+                className="flex-1 border border-line px-4 py-2.5 text-sm focus:border-ink focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => setPointsInput(String(maxUsablePoints))}
+                className="border border-ink px-5 py-2.5 text-sm hover:bg-tint"
+              >
+                모두 사용
+              </button>
+            </div>
+            <p className="mt-1 text-[12px] text-mute">
+              보유 {won(pointsBalance)}P · 이 주문 최대 {won(maxUsablePoints)}P 사용 가능
+            </p>
+          </section>
         </div>
 
         {/* 결제 요약 */}
@@ -283,11 +342,20 @@ export default function Checkout() {
                 <dt className="text-mute">배송비</dt>
                 <dd>{shippingFee === 0 ? (isFreeShip ? '무료 (쿠폰)' : '무료') : `${won(shippingFee)}원`}</dd>
               </div>
+              {pointsToUse > 0 && (
+                <div className="flex justify-between text-sale">
+                  <dt>적립금 사용</dt>
+                  <dd>-{won(pointsToUse)}원</dd>
+                </div>
+              )}
             </dl>
             <div className="mt-4 flex items-baseline justify-between border-t border-line pt-4">
               <span className="text-[13px] text-mute">최종 결제</span>
               <span className="text-xl font-bold">{won(grandTotal)}원</span>
             </div>
+            {earnPreview > 0 && (
+              <p className="mt-1 text-right text-[12px] text-mute">결제 시 {won(earnPreview)}P 적립 예정</p>
+            )}
 
             {err && <p className="mt-3 rounded bg-red-50 px-3 py-2 text-[13px] text-sale">{err}</p>}
 

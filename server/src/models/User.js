@@ -96,6 +96,9 @@ const userSchema = new Schema(
     agreements: { type: agreementsSchema, default: () => ({}) },
     addresses: { type: [addressSchema], default: [] },
     wishlist: { type: [String], default: [] }, // 찜한 상품 slug 목록
+
+    // 적립금 잔액. 단일 진실은 이 필드, 이력은 PointTransaction. 음수 불가(0 클램프).
+    points: { type: Number, default: 0 },
   },
   {
     timestamps: true, // ← createdAt, updatedAt 자동 생성/갱신

@@ -2,10 +2,18 @@ import { randomUUID } from 'node:crypto';
 import User from '../models/User.js';
 import { buildAndSaveUser } from './userController.js';
 import { signToken } from '../utils/jwt.js';
+import { grantSignupBonus } from '../services/pointService.js';
 
 // 회원가입 — POST /auth/signup  (가입 후 자동 로그인: 토큰 발급)
 export async function signup(req, res) {
   const user = await buildAndSaveUser(req.body);
+  // 가입 축하 적립금 — 실패해도 가입은 성립
+  try {
+    const bonus = await grantSignupBonus(user._id);
+    if (bonus) user.points = bonus.balance; // 응답에 잔액 반영
+  } catch {
+    /* 적립금 지급 실패는 가입을 실패시키지 않음 */
+  }
   const token = signToken(user);
   res.status(201).json({ token, user }); // user.toJSON이 passwordHash 제거
 }
@@ -66,6 +74,13 @@ export async function socialLogin(req, res) {
           ageOver14: { agreed: true, at: now },
         },
       });
+      // 신규 소셜 계정 가입 보너스 — 실패해도 로그인은 성립
+      try {
+        const bonus = await grantSignupBonus(user._id);
+        if (bonus) user.points = bonus.balance;
+      } catch {
+        /* 적립금 지급 실패 무시 */
+      }
     } catch (e) {
       // 동시 최초 로그인(탭 2개 등) 경합 → 이미 생성된 계정을 재조회
       if (e.code === 11000) {

@@ -5,6 +5,7 @@ import { fetchMyOrders, cancelOrder } from '../lib/orders.js';
 import { fetchWishlist, useWishlist } from '../lib/wishlist.jsx';
 import { fetchMyEmails, EMAIL_TYPE_LABEL } from '../lib/email.js';
 import { fetchMyCoupons, claimCoupon, couponBenefitText } from '../lib/coupon.js';
+import { fetchMyPoints, POINT_TYPE_LABEL } from '../lib/points.js';
 import { won } from '../lib/format.js';
 import ProductCard from '../components/ProductCard.jsx';
 import PostcodeModal from '../components/PostcodeModal.jsx';
@@ -532,12 +533,85 @@ function CouponsTab() {
   );
 }
 
+function PointsTab() {
+  const [balance, setBalance] = useState(0);
+  const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadPage = (p) => {
+    setLoading(true); setError('');
+    fetchMyPoints({ page: p })
+      .then((d) => {
+        setBalance(d.balance);
+        setItems((prev) => (p === 1 ? d.items : [...prev, ...d.items]));
+        setTotal(d.total);
+        setPage(p);
+      })
+      .catch(() => setError('적립금 정보를 불러오지 못했습니다.'))
+      .finally(() => setLoading(false));
+  };
+  useEffect(() => { loadPage(1); }, []);
+
+  if (loading && items.length === 0) return <div className="py-8 text-center text-mute">불러오는 중…</div>;
+  if (error && items.length === 0) {
+    return (
+      <div className="py-12 text-center">
+        <p className="text-[14px] text-mute">{error}</p>
+        <button onClick={() => loadPage(1)} className="mt-4 border border-ink px-6 py-2.5 text-sm hover:bg-tint">다시 시도</button>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <div className="mb-6 border border-line p-6 text-center">
+        <p className="text-[12px] text-mute">보유 적립금</p>
+        <p className="mt-1 text-3xl font-bold">{won(balance)}<span className="text-lg">P</span></p>
+      </div>
+      {items.length === 0 ? (
+        <p className="py-8 text-center text-[14px] text-mute">적립금 내역이 없습니다.</p>
+      ) : (
+        <>
+          <ul className="divide-y divide-line border-y border-line text-sm">
+            {items.map((t) => (
+              <li key={t._id} className="flex items-center justify-between py-3">
+                <span>
+                  <span className="text-[13px]">{POINT_TYPE_LABEL[t.type] || t.type}</span>
+                  {t.note && <span className="ml-1 text-[12px] text-faint">· {t.note}</span>}
+                  <span className="block text-[12px] text-faint">{t.createdAt?.slice(0, 10)}</span>
+                </span>
+                <span className={`font-medium ${t.amount >= 0 ? 'text-ink' : 'text-sale'}`}>
+                  {t.amount >= 0 ? '+' : ''}{won(t.amount)}P
+                </span>
+              </li>
+            ))}
+          </ul>
+          {items.length < total && (
+            <div className="mt-6 text-center">
+              <button
+                onClick={() => loadPage(page + 1)}
+                disabled={loading}
+                className="border border-line px-8 py-2.5 text-sm hover:bg-tint disabled:opacity-50"
+              >
+                {loading ? '불러오는 중…' : `더보기 (${items.length}/${total})`}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 const TABS = [
   { id: 'profile', label: '내 정보' },
   { id: 'address', label: '배송지 관리' },
   { id: 'orders', label: '주문 내역' },
   { id: 'wishlist', label: '찜한 상품' },
   { id: 'coupons', label: '쿠폰함' },
+  { id: 'points', label: '적립금' },
   { id: 'emails', label: '받은 메일함' },
 ];
 
@@ -588,6 +662,7 @@ export default function MyPage() {
           {tab === 'orders' && <OrdersTab />}
           {tab === 'wishlist' && <WishlistTab />}
           {tab === 'coupons' && <CouponsTab />}
+          {tab === 'points' && <PointsTab />}
           {tab === 'emails' && <EmailsTab />}
         </div>
       </div>

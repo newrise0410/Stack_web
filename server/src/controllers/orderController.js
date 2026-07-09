@@ -4,6 +4,8 @@ import Coupon from '../models/Coupon.js';
 import UserCoupon from '../models/UserCoupon.js';
 import { sendOrderPlaced, sendOrderStatus } from '../services/emailService.js';
 import { validateCoupon, computeCoupon } from '../services/couponService.js';
+import { applyPoints, EARN_RATE } from '../services/pointService.js';
+import PointTransaction from '../models/PointTransaction.js';
 
 const SHIPPING_FEE = 3000;
 const FREE_SHIPPING_THRESHOLD = 50000; // 5만원 이상 무료배송
@@ -32,14 +34,28 @@ async function adjustSales(items, sign) {
   );
 }
 
-// 취소 시 혜택 원복 — 사용한 쿠폰을 다시 사용가능 상태로 되돌린다.
-// (Phase C에서 적립금 환급·회수를 이 함수에 추가한다.) 실패해도 취소는 성립.
+// 취소 시 혜택 원복 — 쿠폰 복구 + 적립금(사용분 환급·적립분 회수). 실패해도 취소는 성립.
 async function reverseOrderBenefits(order) {
   if (order.coupon?.code) {
     await UserCoupon.updateOne(
       { usedOrder: order._id },
       { used: false, usedOrder: null, usedAt: null },
     );
+  }
+  const pointsUsed = order.amounts?.pointsUsed || 0;
+  const userId = order.user?._id || order.user;
+  if (pointsUsed > 0) {
+    // 사용분 환급 — pointsUsed는 주문 생성 전 실제 차감량이라 그대로 되돌린다
+    await applyPoints(userId, pointsUsed, 'refund', { order: order._id, note: `주문 ${order.orderNumber} 취소 환급` });
+  }
+  // 적립분 회수 — 예정치(order.pointsEarned)가 아니라 "실제 적립된 원장 합계"만 회수한다.
+  // (적립 applyPoints는 best-effort라 실패로 미적립일 수 있음. 예정치를 회수하면 적립도 안 됐는데
+  //  가입보너스 등 무관한 잔액에서 빼가는 비대칭이 생기므로, 실제 earn 트랜잭션 합만 되돌린다.)
+  const earnTxns = await PointTransaction.find({ order: order._id, type: 'earn' }).select('amount');
+  const actualEarned = earnTxns.reduce((sum, t) => sum + (t.amount || 0), 0);
+  if (actualEarned > 0) {
+    // 이미 소진돼 잔액이 모자라면 0까지만 회수 — applyPoints가 클램프
+    await applyPoints(userId, -actualEarned, 'reclaim', { order: order._id, note: `주문 ${order.orderNumber} 취소 적립회수` });
   }
 }
 
@@ -116,7 +132,7 @@ export async function createOrder(req, res) {
 
   const couponDiscount = couponResult.itemDiscount;
   const shippingFee = couponResult.shippingFee;
-  const grandTotal = Math.max(0, itemsTotal - couponDiscount + shippingFee);
+  const payableBeforePoints = Math.max(0, itemsTotal - couponDiscount + shippingFee);
 
   // 쿠폰 원자적 선점 (1인 1회) — 주문 생성 전에 소비 확정.
   // 보유·미사용이면 used로, 미보유면 upsert 생성하며 used. 이미 used면 unique 위반(11000) → 거절.
@@ -134,6 +150,22 @@ export async function createOrder(req, res) {
     }
   }
 
+  // 적립금 사용 — 결제금액 이내로 요청 클램프 후 "먼저 원자적으로 차감"하고 실제 차감액을 확정.
+  // 스테일 잔액에 의존하지 않아 동시 주문 오버스펜드가 없다(applyPoints가 0까지만 차감).
+  const requestedPoints = Math.min(Math.max(0, parseInt(req.body.pointsToUse, 10) || 0), payableBeforePoints);
+  let pointsUsed = 0;
+  let spendTxnId = null;
+  if (requestedPoints > 0) {
+    try {
+      const r = await applyPoints(req.user._id, -requestedPoints, 'spend', { note: '주문 적립금 사용' });
+      if (r) { pointsUsed = -r.amount; spendTxnId = r.txnId; } // r.amount는 음수(실제 차감분)
+    } catch {
+      pointsUsed = 0; /* 차감 실패 시 미사용 처리 */
+    }
+  }
+  const grandTotal = Math.max(0, payableBeforePoints - pointsUsed);
+  const pointsEarned = Math.floor(grandTotal * EARN_RATE); // 결제액의 3% 적립 예정
+
   const payload = {
     user: req.user._id,
     items: orderItems,
@@ -145,8 +177,9 @@ export async function createOrder(req, res) {
       address2: shippingAddress.address2,
       deliveryMemo: shippingAddress.deliveryMemo,
     },
-    amounts: { itemsTotal, couponDiscount, shippingFee, pointsUsed: 0, grandTotal },
+    amounts: { itemsTotal, couponDiscount, shippingFee, pointsUsed, grandTotal },
     coupon: { code: couponDoc ? couponCode : '', discount: couponResult.discountTotal },
+    pointsEarned,
     status: 'paid', // mock 결제 즉시 완료
     paymentMethod: 'mock',
   };
@@ -164,9 +197,14 @@ export async function createOrder(req, res) {
       }
     }
   } catch (e) {
-    // 주문 생성 실패 → 선점한 쿠폰을 원복(사용자가 쿠폰을 잃지 않게)
+    // 주문 생성 실패 → 선점/선차감한 혜택을 원복(사용자가 쿠폰·적립금을 잃지 않게)
     if (consumedUserCoupon) {
       await UserCoupon.updateOne({ _id: consumedUserCoupon._id }, { used: false, usedAt: null }).catch(() => {});
+    }
+    if (pointsUsed > 0) {
+      // 선차감분 환급 + 방금 만든 spend 원장 제거(주문이 없으므로 흔적 남기지 않음)
+      await applyPoints(req.user._id, pointsUsed, 'refund', { note: '주문 생성 실패 환급' }).catch(() => {});
+      if (spendTxnId) await PointTransaction.deleteOne({ _id: spendTxnId }).catch(() => {});
     }
     throw e;
   }
@@ -179,6 +217,22 @@ export async function createOrder(req, res) {
     } catch {
       /* usedOrder 연결 실패는 주문을 실패시키지 않음 */
     }
+  }
+
+  // 적립금 사용분은 주문 생성 전에 이미 선(先)차감됨 — 여기서는 그 원장에 주문만 연결(중복 차감 방지)
+  if (spendTxnId) {
+    try {
+      await PointTransaction.updateOne(
+        { _id: spendTxnId },
+        { order: order._id, note: `주문 ${order.orderNumber} 사용` },
+      );
+    } catch { /* 원장 주문 연결 실패는 주문을 실패시키지 않음 */ }
+  }
+  // 구매 적립 — 실패해도 주문은 성립
+  if (pointsEarned > 0) {
+    try {
+      await applyPoints(req.user._id, pointsEarned, 'earn', { order: order._id, note: `주문 ${order.orderNumber} 적립` });
+    } catch { /* 적립 실패 무시 */ }
   }
 
   // 판매량 반영 (BEST 정렬용 salesCount) — 비핵심이므로 실패해도 주문은 성립시킨다
@@ -255,31 +309,41 @@ export async function cancelOrder(req, res) {
   if (!['paid', 'preparing'].includes(order.status)) {
     return res.status(400).json({ message: '이미 배송이 진행되어 취소할 수 없습니다.' });
   }
-  order.status = 'cancelled';
-  await order.save();
+
+  // 단일 승자(single-winner) 원자적 전이: paid/preparing → cancelled 를 한 번만 성립시킨다.
+  // 동시 취소(더블클릭·본인+관리자)가 각각 read-check-save 하면 혜택원복(환급/회수)이 두 번 돌아
+  // 적립금이 중복 환급(무상 지급)되므로, 조건부 findOneAndUpdate 로 경합에서 한 요청만 통과시킨다.
+  const cancelled = await Order.findOneAndUpdate(
+    { _id: order._id, status: { $in: ['paid', 'preparing'] } },
+    { $set: { status: 'cancelled' } },
+    { new: true },
+  );
+  if (!cancelled) {
+    return res.status(409).json({ message: '이미 처리된 주문입니다.' }); // 경합에서 진 요청
+  }
 
   // 판매량 원복 — 실패해도 취소·혜택원복은 계속 진행
   try {
-    await adjustSales(order.items, -1);
+    await adjustSales(cancelled.items, -1);
   } catch {
     /* salesCount 원복 실패 무시 */
   }
 
   // 쿠폰(·적립금) 원복 — 실패해도 취소는 성립
   try {
-    await reverseOrderBenefits(order);
+    await reverseOrderBenefits(cancelled);
   } catch {
     /* 혜택 원복 실패 무시 */
   }
 
   // 취소 안내 메일(목업, 주문 소유자 앞) — 실패해도 취소는 성립
   try {
-    await order.populate('user', 'name email');
-    await sendOrderStatus(order, order.user);
+    await cancelled.populate('user', 'name email');
+    await sendOrderStatus(cancelled, cancelled.user);
   } catch {
     /* 메일 생성 실패 무시 */
   }
-  res.json(order);
+  res.json(cancelled);
 }
 
 // 주문 상태 변경 — PATCH /orders/:id/status (admin)
@@ -305,26 +369,36 @@ export async function updateOrderStatus(req, res) {
   }
 
   // 배송중 전환/송장 수정 시 송장번호 필수
+  const setFields = { status: next };
   if (next === 'shipped') {
     const tn = String(req.body.trackingNumber || '').trim();
     if (!tn) return res.status(400).json({ message: '송장번호를 입력해주세요.' });
-    order.courier = String(req.body.courier || '').trim();
-    order.trackingNumber = tn;
+    setFields.courier = String(req.body.courier || '').trim();
+    setFields.trackingNumber = tn;
   }
 
+  // 조건부 원자적 전이: 읽은 시점의 prev 상태일 때만 갱신한다.
+  // (비원자적 read-check-save 는 취소↔상태변경 경합에서 lost-update 로 cancelled 를 되살려
+  //  혜택원복이 두 번 도는 통로를 열어주므로, prev 로 compare-and-set 해 한 요청만 통과시킨다.)
   const willCancel = next === 'cancelled';
-  order.status = next;
-  await order.save();
+  const updated = await Order.findOneAndUpdate(
+    { _id: order._id, status: prev },
+    { $set: setFields },
+    { new: true },
+  );
+  if (!updated) {
+    return res.status(409).json({ message: '주문 상태가 이미 변경되었습니다. 다시 시도해주세요.' });
+  }
 
   // 취소 전이 시 판매량 원복 (cancelled는 종료라 재가산 경로 없음) + 쿠폰(·적립금) 원복
   if (willCancel) {
     try {
-      await adjustSales(order.items, -1);
+      await adjustSales(updated.items, -1);
     } catch {
       /* salesCount 원복 실패 무시 */
     }
     try {
-      await reverseOrderBenefits(order);
+      await reverseOrderBenefits(updated);
     } catch {
       /* 혜택 원복 실패 무시 */
     }
@@ -333,14 +407,14 @@ export async function updateOrderStatus(req, res) {
   // 응답용 populate + 상태 안내 메일(목업) — 둘 다 실패해도 상태변경은 이미 성립
   // 실제 상태 전이(next!==prev)일 때만 발송: shipped→shipped(송장 수정) 재발송 방지
   try {
-    await order.populate('user', 'name email');
+    await updated.populate('user', 'name email');
     if (next !== prev && ['shipped', 'delivered', 'cancelled'].includes(next)) {
-      await sendOrderStatus(order, order.user);
+      await sendOrderStatus(updated, updated.user);
     }
   } catch {
     /* populate/메일 실패는 상태변경을 실패시키지 않음 */
   }
-  res.json(order);
+  res.json(updated);
 }
 
 // 주문 상세 — GET /orders/:id (requireAuth, 본인/admin)

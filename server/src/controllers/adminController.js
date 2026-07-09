@@ -1,6 +1,7 @@
 import Order from '../models/Order.js';
 import User from '../models/User.js';
 import Product from '../models/Product.js';
+import PointTransaction from '../models/PointTransaction.js';
 
 function dayStart(d = new Date()) {
   const x = new Date(d);
@@ -157,5 +158,14 @@ export async function getMember(req, res) {
   const totalSpent = orders
     .filter((o) => o.status !== 'cancelled')
     .reduce((a, o) => a + o.amounts.grandTotal, 0);
-  res.json({ user, orders, orderCount: orders.length, totalSpent });
+  // 적립금 잔액 + 최근 내역
+  const pointTransactions = await PointTransaction.find({ user: user._id }).sort({ createdAt: -1, _id: -1 }).limit(20);
+  res.json({
+    user,
+    orders,
+    orderCount: orders.length,
+    totalSpent,
+    points: user.points || 0,
+    pointTransactions,
+  });
 }

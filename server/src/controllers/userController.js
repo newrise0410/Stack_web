@@ -17,6 +17,7 @@ export async function buildAndSaveUser(body) {
   const data = pick(body, CREATE_FIELDS);
   data.role = 'client';
   data.provider = 'local';
+  // 가입 보너스는 실제 셀프 가입(authController.signup)에서만 지급 — 관리자 생성 계정은 제외
   return User.create(data); // save 훅에서 비번 해싱
 }
 
