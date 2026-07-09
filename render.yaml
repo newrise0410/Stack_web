@@ -23,3 +23,9 @@ services:
         value: 7d
       - key: CLIENT_ORIGIN
         sync: false # Vercel 프론트 도메인 (예: https://stacknstak.vercel.app)
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
