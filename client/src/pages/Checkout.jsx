@@ -4,6 +4,7 @@ import { useCart } from '../lib/cart.jsx';
 import { useAuth } from '../lib/auth.jsx';
 import { fetchProducts } from '../lib/products.js';
 import { createOrder } from '../lib/orders.js';
+import { fetchAvailableCoupons, claimCoupon } from '../lib/coupon.js';
 import { won } from '../lib/format.js';
 import { Loading, LoadError } from '../components/Loading.jsx';
 
@@ -23,6 +24,10 @@ export default function Checkout() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [done, setDone] = useState(null); // 완료된 주문
+  const [coupons, setCoupons] = useState([]); // /coupons/available 결과
+  const [couponCode, setCouponCode] = useState(''); // 적용한 쿠폰 코드
+  const [codeInput, setCodeInput] = useState('');
+  const [couponMsg, setCouponMsg] = useState('');
 
   useEffect(() => {
     fetchProducts({ limit: 100 })
@@ -48,8 +53,53 @@ export default function Checkout() {
   );
 
   const itemsTotal = rows.reduce((s, r) => s + r.product.price * r.qty, 0);
-  const shippingFee = itemsTotal >= FREE_SHIPPING ? 0 : SHIPPING_FEE;
-  const grandTotal = itemsTotal + shippingFee;
+
+  // 적용 가능한 쿠폰 목록 (상품금액 기준으로 서버가 적용성/할인액 계산)
+  useEffect(() => {
+    if (itemsTotal <= 0) return;
+    fetchAvailableCoupons(itemsTotal)
+      .then((d) => setCoupons(d.items))
+      .catch(() => setCoupons([]));
+  }, [itemsTotal]);
+
+  // 적용 가능 + 실제 혜택(>0)이 있는 것만 (이미 무료배송인 주문의 free_shipping 쿠폰 등 -0원 제외)
+  const applicable = coupons.filter((c) => c.applicable && c.discountTotal > 0);
+  const selectedCoupon = applicable.find((c) => c.code === couponCode) || null;
+  const isFreeShip = selectedCoupon?.discountType === 'free_shipping';
+  const couponItemDiscount = selectedCoupon && !isFreeShip ? selectedCoupon.discountTotal : 0;
+  const baseShipping = itemsTotal >= FREE_SHIPPING ? 0 : SHIPPING_FEE;
+  const shippingFee = isFreeShip ? 0 : baseShipping;
+  const grandTotal = Math.max(0, itemsTotal - couponItemDiscount + shippingFee);
+
+  const applyCode = async (e) => {
+    e.preventDefault();
+    const code = codeInput.trim().toUpperCase();
+    if (!code) return;
+    setCouponMsg('');
+    try {
+      await claimCoupon(code);
+    } catch (e2) {
+      // 이미 보유(409)면 그대로 진행, 그 외는 메시지 표시
+      if (e2.response?.status !== 409) {
+        setCouponMsg(e2.response?.data?.message || '쿠폰 등록에 실패했습니다.');
+        return;
+      }
+    }
+    try {
+      const d = await fetchAvailableCoupons(itemsTotal);
+      setCoupons(d.items);
+      const found = d.items.find((c) => c.code === code);
+      if (found?.applicable) {
+        setCouponCode(code);
+        setCouponMsg('쿠폰이 적용되었습니다.');
+      } else {
+        setCouponMsg(found?.reason || '이 주문에 사용할 수 없는 쿠폰입니다.');
+      }
+      setCodeInput('');
+    } catch {
+      setCouponMsg('쿠폰 정보를 불러오지 못했습니다.');
+    }
+  };
 
   const selectedAddr = addresses.find((a) => String(a._id) === addrId);
 
@@ -60,6 +110,7 @@ export default function Checkout() {
     try {
       const order = await createOrder({
         items: rows.map((r) => ({ slug: r.id, qty: r.qty, option: r.option })),
+        couponCode: selectedCoupon ? couponCode : undefined,
         shippingAddress: {
           recipient: selectedAddr.recipient,
           phone: selectedAddr.phone,
@@ -181,6 +232,36 @@ export default function Checkout() {
               ))}
             </ul>
           </section>
+
+          {/* 쿠폰 */}
+          <section>
+            <h2 className="mb-3 text-sm font-bold">쿠폰</h2>
+            <select
+              value={couponCode}
+              onChange={(e) => setCouponCode(e.target.value)}
+              className="w-full border border-line px-4 py-3 text-sm focus:border-ink focus:outline-none"
+            >
+              <option value="">쿠폰 미적용</option>
+              {applicable.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code} · {c.name} (-{won(c.discountTotal)}원)
+                </option>
+              ))}
+            </select>
+            {coupons.length > applicable.length && (
+              <p className="mt-1 text-[11px] text-faint">일부 보유 쿠폰은 이 주문 조건(최소금액·만료·혜택 없음 등)에 맞지 않아 숨겨졌어요.</p>
+            )}
+            <form onSubmit={applyCode} className="mt-2 flex gap-2">
+              <input
+                value={codeInput}
+                onChange={(e) => setCodeInput(e.target.value)}
+                placeholder="쿠폰 코드로 등록"
+                className="flex-1 border border-line px-4 py-2.5 text-sm uppercase focus:border-ink focus:outline-none"
+              />
+              <button type="submit" className="border border-ink px-5 py-2.5 text-sm hover:bg-tint">등록</button>
+            </form>
+            {couponMsg && <p className="mt-1 text-[12px] text-mute">{couponMsg}</p>}
+          </section>
         </div>
 
         {/* 결제 요약 */}
@@ -192,9 +273,15 @@ export default function Checkout() {
                 <dt className="text-mute">상품 금액</dt>
                 <dd>{won(itemsTotal)}원</dd>
               </div>
+              {couponItemDiscount > 0 && (
+                <div className="flex justify-between text-sale">
+                  <dt>쿠폰 할인</dt>
+                  <dd>-{won(couponItemDiscount)}원</dd>
+                </div>
+              )}
               <div className="flex justify-between">
                 <dt className="text-mute">배송비</dt>
-                <dd>{shippingFee === 0 ? '무료' : `${won(shippingFee)}원`}</dd>
+                <dd>{shippingFee === 0 ? (isFreeShip ? '무료 (쿠폰)' : '무료') : `${won(shippingFee)}원`}</dd>
               </div>
             </dl>
             <div className="mt-4 flex items-baseline justify-between border-t border-line pt-4">

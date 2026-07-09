@@ -1,10 +1,61 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { fetchMember, setUserRole, setUserStatus } from '../../lib/admin.js';
+import { fetchAdminCoupons, issueCouponToMember, couponBenefitText } from '../../lib/coupon.js';
 import { useToast } from '../../lib/toast.jsx';
 import { won } from '../../lib/format.js';
 import StatCard from '../../components/admin/StatCard.jsx';
 import StatusBadge from '../../components/admin/StatusBadge.jsx';
+
+function IssueCoupon({ userId }) {
+  const toast = useToast();
+  const [coupons, setCoupons] = useState([]);
+  const [sel, setSel] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    fetchAdminCoupons()
+      .then((d) => setCoupons(d.items.filter((c) => c.active && !(c.expiresAt && new Date(c.expiresAt) < new Date()))))
+      .catch(() => setCoupons([]));
+  }, []);
+
+  const issue = async () => {
+    if (!sel) return;
+    setBusy(true);
+    try {
+      await issueCouponToMember(userId, sel);
+      toast.success('쿠폰을 발급했습니다.');
+      setSel('');
+    } catch (e) {
+      toast.error(e.response?.data?.message || '발급에 실패했습니다.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="mt-10">
+      <h2 className="mb-3 text-lg font-bold">쿠폰 발급</h2>
+      {coupons.length === 0 ? (
+        <p className="text-[13px] text-mute">발급할 활성 쿠폰이 없습니다. 쿠폰 메뉴에서 먼저 생성하세요.</p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <select value={sel} onChange={(e) => setSel(e.target.value)}
+            className="border border-line px-3 py-2 text-sm focus:border-ink focus:outline-none">
+            <option value="">쿠폰 선택</option>
+            {coupons.map((c) => (
+              <option key={c._id} value={c._id}>{c.code} · {couponBenefitText(c)}</option>
+            ))}
+          </select>
+          <button onClick={issue} disabled={!sel || busy}
+            className="border border-ink px-5 py-2 text-sm hover:bg-tint disabled:opacity-50">
+            {busy ? '발급 중…' : '발급'}
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
 
 export default function MemberDetail() {
   const { id } = useParams();
@@ -107,6 +158,8 @@ export default function MemberDetail() {
           </div>
         )}
       </section>
+
+      <IssueCoupon userId={user._id} />
     </div>
   );
 }

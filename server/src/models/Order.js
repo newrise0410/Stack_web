@@ -37,9 +37,16 @@ const orderSchema = new Schema(
     shippingAddress: { type: shippingAddressSchema, required: true },
     amounts: {
       itemsTotal: { type: Number, required: true }, // 상품 합계
-      shippingFee: { type: Number, required: true }, // 배송비
+      couponDiscount: { type: Number, default: 0 }, // 쿠폰 상품할인
+      shippingFee: { type: Number, required: true }, // 배송비 (free_shipping이면 0)
+      pointsUsed: { type: Number, default: 0 }, // 적립금 사용 (Phase C)
       grandTotal: { type: Number, required: true }, // 최종 결제액
     },
+    coupon: {
+      code: { type: String, default: '' }, // 적용 쿠폰 코드 스냅샷
+      discount: { type: Number, default: 0 }, // 총 혜택(상품+배송 할인)
+    },
+    pointsEarned: { type: Number, default: 0 }, // 적립 예정/적립액 (Phase C)
     status: {
       type: String,
       enum: ['pending', 'paid', 'preparing', 'shipped', 'delivered', 'cancelled'],

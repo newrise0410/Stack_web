@@ -1,6 +1,9 @@
 import Order from '../models/Order.js';
 import Product from '../models/Product.js';
+import Coupon from '../models/Coupon.js';
+import UserCoupon from '../models/UserCoupon.js';
 import { sendOrderPlaced, sendOrderStatus } from '../services/emailService.js';
+import { validateCoupon, computeCoupon } from '../services/couponService.js';
 
 const SHIPPING_FEE = 3000;
 const FREE_SHIPPING_THRESHOLD = 50000; // 5만원 이상 무료배송
@@ -27,6 +30,17 @@ async function adjustSales(items, sign) {
         updateOne: { filter: { _id: i.product }, update: { $inc: { salesCount: sign * i.qty } } },
       })),
   );
+}
+
+// 취소 시 혜택 원복 — 사용한 쿠폰을 다시 사용가능 상태로 되돌린다.
+// (Phase C에서 적립금 환급·회수를 이 함수에 추가한다.) 실패해도 취소는 성립.
+async function reverseOrderBenefits(order) {
+  if (order.coupon?.code) {
+    await UserCoupon.updateOne(
+      { usedOrder: order._id },
+      { used: false, usedOrder: null, usedAt: null },
+    );
+  }
 }
 
 // 주문 생성 — POST /orders (requireAuth)
@@ -87,8 +101,38 @@ export async function createOrder(req, res) {
   }
 
   const itemsTotal = orderItems.reduce((s, i) => s + i.price * i.qty, 0);
-  const shippingFee = itemsTotal >= FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING_FEE;
-  const grandTotal = itemsTotal + shippingFee;
+  const baseShipping = itemsTotal >= FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING_FEE;
+
+  // 쿠폰 적용 (서버 권위). 소비는 아래에서 원자적으로 선점한다.
+  const couponCode = String(req.body.couponCode || '').trim().toUpperCase();
+  let couponDoc = null;
+  let couponResult = { itemDiscount: 0, shippingFee: baseShipping, discountTotal: 0 };
+  if (couponCode) {
+    couponDoc = await Coupon.findOne({ code: couponCode });
+    const err = validateCoupon(couponDoc, itemsTotal);
+    if (err) return res.status(400).json({ message: err });
+    couponResult = computeCoupon(couponDoc, itemsTotal, baseShipping);
+  }
+
+  const couponDiscount = couponResult.itemDiscount;
+  const shippingFee = couponResult.shippingFee;
+  const grandTotal = Math.max(0, itemsTotal - couponDiscount + shippingFee);
+
+  // 쿠폰 원자적 선점 (1인 1회) — 주문 생성 전에 소비 확정.
+  // 보유·미사용이면 used로, 미보유면 upsert 생성하며 used. 이미 used면 unique 위반(11000) → 거절.
+  let consumedUserCoupon = null;
+  if (couponDoc) {
+    try {
+      consumedUserCoupon = await UserCoupon.findOneAndUpdate(
+        { user: req.user._id, coupon: couponDoc._id, used: false },
+        { $set: { used: true, usedAt: new Date() }, $setOnInsert: { issuedBy: 'self' } },
+        { new: true, upsert: true },
+      );
+    } catch (e) {
+      if (e.code === 11000) return res.status(400).json({ message: '이미 사용한 쿠폰입니다.' });
+      throw e;
+    }
+  }
 
   const payload = {
     user: req.user._id,
@@ -101,20 +145,39 @@ export async function createOrder(req, res) {
       address2: shippingAddress.address2,
       deliveryMemo: shippingAddress.deliveryMemo,
     },
-    amounts: { itemsTotal, shippingFee, grandTotal },
+    amounts: { itemsTotal, couponDiscount, shippingFee, pointsUsed: 0, grandTotal },
+    coupon: { code: couponDoc ? couponCode : '', discount: couponResult.discountTotal },
     status: 'paid', // mock 결제 즉시 완료
     paymentMethod: 'mock',
   };
 
   // 주문번호 랜덤 충돌(E11000) 시 재시도
   let order;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  try {
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try {
+        order = await Order.create({ ...payload, orderNumber: genOrderNumber() });
+        break;
+      } catch (e) {
+        if (e.code === 11000 && attempt < 3) continue;
+        throw e;
+      }
+    }
+  } catch (e) {
+    // 주문 생성 실패 → 선점한 쿠폰을 원복(사용자가 쿠폰을 잃지 않게)
+    if (consumedUserCoupon) {
+      await UserCoupon.updateOne({ _id: consumedUserCoupon._id }, { used: false, usedAt: null }).catch(() => {});
+    }
+    throw e;
+  }
+
+  // 선점한 쿠폰에 주문 연결 (best-effort — 이미 소비는 확정됨)
+  if (consumedUserCoupon) {
     try {
-      order = await Order.create({ ...payload, orderNumber: genOrderNumber() });
-      break;
-    } catch (e) {
-      if (e.code === 11000 && attempt < 3) continue;
-      throw e;
+      consumedUserCoupon.usedOrder = order._id;
+      await consumedUserCoupon.save();
+    } catch {
+      /* usedOrder 연결 실패는 주문을 실패시키지 않음 */
     }
   }
 
@@ -194,7 +257,20 @@ export async function cancelOrder(req, res) {
   }
   order.status = 'cancelled';
   await order.save();
-  await adjustSales(order.items, -1); // 판매량 원복
+
+  // 판매량 원복 — 실패해도 취소·혜택원복은 계속 진행
+  try {
+    await adjustSales(order.items, -1);
+  } catch {
+    /* salesCount 원복 실패 무시 */
+  }
+
+  // 쿠폰(·적립금) 원복 — 실패해도 취소는 성립
+  try {
+    await reverseOrderBenefits(order);
+  } catch {
+    /* 혜택 원복 실패 무시 */
+  }
 
   // 취소 안내 메일(목업, 주문 소유자 앞) — 실패해도 취소는 성립
   try {
@@ -240,8 +316,19 @@ export async function updateOrderStatus(req, res) {
   order.status = next;
   await order.save();
 
-  // 취소 전이 시 판매량 원복 (cancelled는 종료라 재가산 경로 없음)
-  if (willCancel) await adjustSales(order.items, -1);
+  // 취소 전이 시 판매량 원복 (cancelled는 종료라 재가산 경로 없음) + 쿠폰(·적립금) 원복
+  if (willCancel) {
+    try {
+      await adjustSales(order.items, -1);
+    } catch {
+      /* salesCount 원복 실패 무시 */
+    }
+    try {
+      await reverseOrderBenefits(order);
+    } catch {
+      /* 혜택 원복 실패 무시 */
+    }
+  }
 
   // 응답용 populate + 상태 안내 메일(목업) — 둘 다 실패해도 상태변경은 이미 성립
   // 실제 상태 전이(next!==prev)일 때만 발송: shipped→shipped(송장 수정) 재발송 방지

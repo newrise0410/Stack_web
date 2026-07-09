@@ -4,6 +4,7 @@ import { useAuth } from '../lib/auth.jsx';
 import { fetchMyOrders, cancelOrder } from '../lib/orders.js';
 import { fetchWishlist, useWishlist } from '../lib/wishlist.jsx';
 import { fetchMyEmails, EMAIL_TYPE_LABEL } from '../lib/email.js';
+import { fetchMyCoupons, claimCoupon, couponBenefitText } from '../lib/coupon.js';
 import { won } from '../lib/format.js';
 import ProductCard from '../components/ProductCard.jsx';
 import PostcodeModal from '../components/PostcodeModal.jsx';
@@ -437,11 +438,106 @@ function EmailsTab() {
   );
 }
 
+function CouponsTab() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [code, setCode] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const load = () => {
+    setLoading(true);
+    fetchMyCoupons()
+      .then((d) => setItems(d.items))
+      .catch(() => setItems([]))
+      .finally(() => setLoading(false));
+  };
+  useEffect(load, []);
+
+  const claim = async (e) => {
+    e.preventDefault();
+    if (!code.trim()) return;
+    setBusy(true); setMsg('');
+    try {
+      await claimCoupon(code.trim());
+      setCode('');
+      setMsg('쿠폰이 등록되었습니다.');
+      load();
+    } catch (e2) {
+      setMsg(e2.response?.data?.message || '쿠폰 등록에 실패했습니다.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const available = items.filter((uc) => !uc.used);
+  const used = items.filter((uc) => uc.used);
+
+  return (
+    <div>
+      <form onSubmit={claim} className="mb-6 flex gap-2">
+        <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="쿠폰 코드 입력"
+          className="flex-1 border border-line px-4 py-2.5 text-sm uppercase focus:border-ink focus:outline-none" />
+        <button disabled={busy} className="border border-ink px-6 py-2.5 text-sm hover:bg-tint disabled:opacity-50">
+          {busy ? '등록 중…' : '등록'}
+        </button>
+      </form>
+      {msg && <p className="mb-4 text-[13px] text-mute">{msg}</p>}
+
+      {loading ? (
+        <p className="py-8 text-center text-mute">불러오는 중…</p>
+      ) : items.length === 0 ? (
+        <p className="py-12 text-center text-[14px] text-mute">보유한 쿠폰이 없습니다.</p>
+      ) : (
+        <div className="space-y-6">
+          <div>
+            <h3 className="mb-2 text-[13px] font-semibold text-mute">사용 가능 ({available.length})</h3>
+            {available.length === 0 ? (
+              <p className="text-[13px] text-faint">사용 가능한 쿠폰이 없습니다.</p>
+            ) : (
+              <ul className="space-y-2">
+                {available.map((uc) => (
+                  <li key={uc._id} className="flex items-center justify-between border border-line px-4 py-3">
+                    <div>
+                      <p className="font-medium">{uc.coupon.name}</p>
+                      <p className="text-[12px] text-mute">
+                        <span className="font-mono">{uc.coupon.code}</span> · {couponBenefitText(uc.coupon)}
+                        {uc.coupon.minOrderAmount ? ` · ${won(uc.coupon.minOrderAmount)}원 이상` : ''}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-[12px] text-faint">
+                      {uc.coupon.expiresAt ? `~${uc.coupon.expiresAt.slice(0, 10)}` : '무기한'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {used.length > 0 && (
+            <div>
+              <h3 className="mb-2 text-[13px] font-semibold text-mute">사용 완료 ({used.length})</h3>
+              <ul className="space-y-2 opacity-50">
+                {used.map((uc) => (
+                  <li key={uc._id} className="flex items-center justify-between border border-line px-4 py-3">
+                    <p className="text-sm">{uc.coupon.name} <span className="font-mono text-[12px] text-mute">{uc.coupon.code}</span></p>
+                    <span className="text-[12px] text-faint">사용됨</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const TABS = [
   { id: 'profile', label: '내 정보' },
   { id: 'address', label: '배송지 관리' },
   { id: 'orders', label: '주문 내역' },
   { id: 'wishlist', label: '찜한 상품' },
+  { id: 'coupons', label: '쿠폰함' },
   { id: 'emails', label: '받은 메일함' },
 ];
 
@@ -491,6 +587,7 @@ export default function MyPage() {
           {tab === 'address' && <AddressTab />}
           {tab === 'orders' && <OrdersTab />}
           {tab === 'wishlist' && <WishlistTab />}
+          {tab === 'coupons' && <CouponsTab />}
           {tab === 'emails' && <EmailsTab />}
         </div>
       </div>

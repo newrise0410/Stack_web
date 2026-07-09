@@ -8,6 +8,7 @@ const NAV = [
   { to: '/admin/members', label: '회원' },
   { to: '/admin/reviews', label: '리뷰' },
   { to: '/admin/emails', label: '이메일' },
+  { to: '/admin/coupons', label: '쿠폰' },
   { to: '/admin/analytics', label: '분석' },
 ];
 
