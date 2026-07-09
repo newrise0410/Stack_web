@@ -74,23 +74,39 @@ export async function getStats(req, res) {
 
 // 분석 — GET /admin/analytics?period=7d|30d|12m (admin)
 const TZ = 'Asia/Seoul';
+const pad = (n) => String(n).padStart(2, '0');
+// 서버/DB 프로세스 TZ와 무관하게 항상 KST(Asia/Seoul) 기준의 날짜 구성요소를 얻는다.
+// ($dateToString은 timezone:TZ로 KST 라벨을 만들므로, 갭필 라벨도 KST로 맞춰야 매칭됨)
+function kstParts(date) {
+  const [y, m, d] = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(date).split('-').map(Number);
+  return { y, m, d };
+}
+
 export async function getAnalytics(req, res) {
   const period = ['7d', '30d', '12m'].includes(req.query.period) ? req.query.period : '30d';
-  const start = new Date();
   const monthly = period === '12m';
-  let fmt;
+  const fmt = monthly ? '%Y-%m' : '%Y-%m-%d';
+
+  // 오늘(KST) 기준으로 라벨 시퀀스를 UTC 날짜 산술로 생성 → 프로세스 TZ에 의존하지 않음
+  const { y, m, d } = kstParts(new Date());
+  const labels = [];
   if (monthly) {
-    // setDate(1)을 setMonth보다 먼저: 말일(29~31일) 기준 시 월 넘침(off-by-one) 방지
-    start.setDate(1);
-    start.setMonth(start.getMonth() - 11);
-    start.setHours(0, 0, 0, 0);
-    fmt = '%Y-%m';
+    for (let k = 11; k >= 0; k--) {
+      const dt = new Date(Date.UTC(y, m - 1 - k, 1)); // 월 오버플로 자동 정규화
+      labels.push(`${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}`);
+    }
   } else {
     const days = period === '7d' ? 7 : 30;
-    start.setDate(start.getDate() - (days - 1));
-    start.setHours(0, 0, 0, 0);
-    fmt = '%Y-%m-%d';
+    for (let k = days - 1; k >= 0; k--) {
+      const dt = new Date(Date.UTC(y, m - 1, d - k)); // 일 오버플로 자동 정규화
+      labels.push(`${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`);
+    }
   }
+  // $match 하한 = 첫 버킷의 KST 자정(= 해당 날짜 UTC 자정 - 9시간)의 절대 시각
+  const first = monthly ? new Date(Date.UTC(y, m - 1 - 11, 1)) : new Date(Date.UTC(y, m - 1, d - (period === '7d' ? 6 : 29)));
+  const start = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), first.getUTCDate()) - 9 * 3600 * 1000);
 
   const [agg] = await Order.aggregate([
     { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: start } } },
@@ -117,22 +133,7 @@ export async function getAnalytics(req, res) {
     },
   ]);
 
-  // 매출 없는 날/월도 0으로 채워 시간축을 연속으로 (서버 TZ=Asia/Seoul 기준 라벨 생성)
-  const pad = (n) => String(n).padStart(2, '0');
-  const labels = [];
-  const cur = new Date(start);
-  const now = new Date();
-  if (monthly) {
-    while (cur <= now) {
-      labels.push(`${cur.getFullYear()}-${pad(cur.getMonth() + 1)}`);
-      cur.setMonth(cur.getMonth() + 1);
-    }
-  } else {
-    while (cur <= now) {
-      labels.push(`${cur.getFullYear()}-${pad(cur.getMonth() + 1)}-${pad(cur.getDate())}`);
-      cur.setDate(cur.getDate() + 1);
-    }
-  }
+  // 매출 없는 날/월도 0으로 채워 시간축을 연속으로 (라벨은 위에서 KST로 생성)
   const byLabel = new Map(agg.series.map((r) => [r._id, r]));
   const series = labels.map((label) => ({
     label,
