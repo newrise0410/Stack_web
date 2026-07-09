@@ -10,7 +10,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "seed": "node src/seed/seedProducts.js"
+    "seed": "node src/seed/seedProducts.js",
+    "migrate:images": "node src/scripts/migrateImagesToCloudinary.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
