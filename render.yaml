@@ -23,6 +23,9 @@ services:
         value: 7d
       - key: CLIENT_ORIGIN
         sync: false # Vercel 프론트 도메인 (예: https://stacknstak.vercel.app)
+      # Cloudinary: CLOUDINARY_URL 하나만 넣거나(권장), 아래 3개 분리 형식 중 택1
+      - key: CLOUDINARY_URL
+        sync: false
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
       - key: CLOUDINARY_API_KEY
