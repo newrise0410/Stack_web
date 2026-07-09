@@ -12,6 +12,8 @@ const SORTS = {
   priceAsc: { price: 1 },
   priceDesc: { price: -1 },
 };
+// own 속성만 허용 (__proto__/toString 등 상속 키가 정렬로 새어들지 않게)
+const sortSpec = (key) => (Object.prototype.hasOwnProperty.call(SORTS, key) ? SORTS[key] : { createdAt: -1 });
 
 // 쿼리 파라미터를 문자열로 강제해 객체 주입($ne/$text 오염 등)을 차단
 const str = (v) => (v == null ? '' : String(Array.isArray(v) ? v[0] : v));
@@ -31,7 +33,7 @@ export async function listProducts(req, res) {
   if (q) filter.$text = { $search: q };
 
   const [items, total] = await Promise.all([
-    Product.find(filter).sort(SORTS[sort] || { createdAt: -1 }).skip((page - 1) * limit).limit(limit),
+    Product.find(filter).sort(sortSpec(sort)).skip((page - 1) * limit).limit(limit),
     Product.countDocuments(filter),
   ]);
   res.json({ page, limit, total, items });
@@ -57,7 +59,7 @@ export async function listAllProducts(req, res) {
   }
 
   const [items, total] = await Promise.all([
-    Product.find(filter).sort(SORTS[sort] || { createdAt: -1 }).skip((page - 1) * limit).limit(limit),
+    Product.find(filter).sort(sortSpec(sort)).skip((page - 1) * limit).limit(limit),
     Product.countDocuments(filter),
   ]);
   res.json({ page, limit, total, items });

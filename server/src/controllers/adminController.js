@@ -77,10 +77,12 @@ const TZ = 'Asia/Seoul';
 export async function getAnalytics(req, res) {
   const period = ['7d', '30d', '12m'].includes(req.query.period) ? req.query.period : '30d';
   const start = new Date();
+  const monthly = period === '12m';
   let fmt;
-  if (period === '12m') {
-    start.setMonth(start.getMonth() - 11);
+  if (monthly) {
+    // setDate(1)을 setMonth보다 먼저: 말일(29~31일) 기준 시 월 넘침(off-by-one) 방지
     start.setDate(1);
+    start.setMonth(start.getMonth() - 11);
     start.setHours(0, 0, 0, 0);
     fmt = '%Y-%m';
   } else {
@@ -115,9 +117,32 @@ export async function getAnalytics(req, res) {
     },
   ]);
 
+  // 매출 없는 날/월도 0으로 채워 시간축을 연속으로 (서버 TZ=Asia/Seoul 기준 라벨 생성)
+  const pad = (n) => String(n).padStart(2, '0');
+  const labels = [];
+  const cur = new Date(start);
+  const now = new Date();
+  if (monthly) {
+    while (cur <= now) {
+      labels.push(`${cur.getFullYear()}-${pad(cur.getMonth() + 1)}`);
+      cur.setMonth(cur.getMonth() + 1);
+    }
+  } else {
+    while (cur <= now) {
+      labels.push(`${cur.getFullYear()}-${pad(cur.getMonth() + 1)}-${pad(cur.getDate())}`);
+      cur.setDate(cur.getDate() + 1);
+    }
+  }
+  const byLabel = new Map(agg.series.map((r) => [r._id, r]));
+  const series = labels.map((label) => ({
+    label,
+    revenue: byLabel.get(label)?.revenue || 0,
+    orders: byLabel.get(label)?.orders || 0,
+  }));
+
   res.json({
     period,
-    series: agg.series.map((r) => ({ label: r._id, revenue: r.revenue, orders: r.orders })),
+    series,
     bestSellers: agg.bestSellers.map((r) => ({ name: r._id, units: r.units, revenue: r.revenue })),
     typeSales: agg.typeSales.map((r) => ({ type: r._id, revenue: r.revenue, units: r.units })),
   });

@@ -21,6 +21,10 @@ const SORTS = [
   { id: 'priceDesc', label: '높은가격순' },
 ];
 
+// 이미지 행의 안정적 React key (인덱스 key는 삭제/재정렬 시 포커스가 튐)
+let imgUid = 0;
+const nextImgId = () => (imgUid += 1);
+
 const emptyForm = {
   slug: '', name: '', nameKo: '', type: 'Table', price: '', compareAtPrice: '',
   badges: {}, images: [], description: '',
@@ -33,7 +37,7 @@ function toForm(p) {
     slug: p.slug, name: p.name, nameKo: p.nameKo || '', type: p.type,
     price: String(p.price ?? ''), compareAtPrice: p.compareAtPrice != null ? String(p.compareAtPrice) : '',
     badges: Object.fromEntries((p.badges || []).map((b) => [b, true])),
-    images: [...(p.images || [])],
+    images: (p.images || []).map((url) => ({ id: nextImgId(), url })),
     description: p.description || '',
     material: p.specs?.material || '', dimensions: p.specs?.dimensions || '',
     feature: p.specs?.feature || '', leadTime: p.specs?.leadTime || '',
@@ -51,7 +55,7 @@ function toBody(f) {
     price: Number(f.price),
     compareAtPrice: f.compareAtPrice ? Number(f.compareAtPrice) : null,
     badges: BADGE_OPTS.filter((b) => f.badges[b]),
-    images: f.images.map((s) => s.trim()).filter(Boolean),
+    images: f.images.map((s) => s.url.trim()).filter(Boolean),
     description: f.description.trim(),
     specs: { material: f.material, dimensions: f.dimensions, feature: f.feature, leadTime: f.leadTime },
     options: f.optionsText.split(',').map((s) => s.trim()).filter(Boolean),
@@ -69,8 +73,8 @@ function ProductForm({ initial, onDone, onCancel }) {
   const on = (e) => set(e.target.name, e.target.value);
 
   // 이미지 배열 편집 (순서 = 노출 순서, 첫 장 = 대표)
-  const setImage = (i, v) => setF((s) => ({ ...s, images: s.images.map((x, idx) => (idx === i ? v : x)) }));
-  const addImage = () => setF((s) => ({ ...s, images: [...s.images, ''] }));
+  const setImage = (i, v) => setF((s) => ({ ...s, images: s.images.map((x, idx) => (idx === i ? { ...x, url: v } : x)) }));
+  const addImage = () => setF((s) => ({ ...s, images: [...s.images, { id: nextImgId(), url: '' }] }));
   const removeImage = (i) => setF((s) => ({ ...s, images: s.images.filter((_, idx) => idx !== i) }));
   const moveImage = (i, dir) => setF((s) => {
     const j = i + dir;
@@ -129,12 +133,12 @@ function ProductForm({ initial, onDone, onCancel }) {
         <div className="md:col-span-2">
           <label className={label}>이미지 URL (순서 = 노출 순서, 첫 장이 대표)</label>
           <div className="space-y-2">
-            {f.images.map((url, i) => (
-              <div key={i} className="flex items-center gap-2">
+            {f.images.map((img, i) => (
+              <div key={img.id} className="flex items-center gap-2">
                 <div className="h-12 w-12 shrink-0 overflow-hidden border border-line bg-tint">
-                  {url && <img src={url} alt="" className="h-full w-full object-cover" />}
+                  {img.url && <img src={img.url} alt="" className="h-full w-full object-cover" />}
                 </div>
-                <input className={inputCls} value={url} onChange={(e) => setImage(i, e.target.value)} placeholder="https://..." />
+                <input className={inputCls} value={img.url} onChange={(e) => setImage(i, e.target.value)} placeholder="https://..." />
                 <button type="button" onClick={() => moveImage(i, -1)} disabled={i === 0}
                   className="px-2 text-mute hover:text-ink disabled:opacity-30" aria-label="위로">↑</button>
                 <button type="button" onClick={() => moveImage(i, 1)} disabled={i === f.images.length - 1}
@@ -234,7 +238,9 @@ export default function ProductsAdmin() {
     try {
       await api.delete(`/products/${slug}`);
       toast.success('상품을 삭제했습니다.');
-      load();
+      // 현재 페이지의 마지막 항목을 지웠고 첫 페이지가 아니면 이전 페이지로(빈 페이지 갇힘 방지)
+      if (data.items.length === 1 && page > 1) patch({ page: String(page - 1) });
+      else load();
     } catch {
       toast.error('삭제에 실패했습니다.');
     }
@@ -245,6 +251,8 @@ export default function ProductsAdmin() {
       const updated = await patchProduct(p.slug, { status: next });
       setData((d) => ({ ...d, items: d.items.map((x) => (x._id === p._id ? updated : x)) }));
       toast.success('상태를 변경했습니다.');
+      // 상태 필터가 걸려 있고 새 상태가 필터와 어긋나면 목록·총계가 어긋나므로 재조회
+      if (status && next !== status) load();
     } catch {
       toast.error('상태 변경에 실패했습니다.');
     }
