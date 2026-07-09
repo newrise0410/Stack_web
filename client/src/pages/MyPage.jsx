@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth.jsx';
 import { fetchMyOrders, cancelOrder } from '../lib/orders.js';
 import { fetchWishlist, useWishlist } from '../lib/wishlist.jsx';
+import { fetchMyEmails, EMAIL_TYPE_LABEL } from '../lib/email.js';
 import { won } from '../lib/format.js';
 import ProductCard from '../components/ProductCard.jsx';
 import PostcodeModal from '../components/PostcodeModal.jsx';
@@ -358,11 +359,90 @@ function WishlistTab() {
   );
 }
 
+function EmailsTab() {
+  const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [openId, setOpenId] = useState(null);
+
+  const loadPage = (p) => {
+    setLoading(true);
+    setError('');
+    fetchMyEmails({ page: p })
+      .then((d) => {
+        setItems((prev) => (p === 1 ? d.items : [...prev, ...d.items]));
+        setTotal(d.total);
+        setPage(p);
+      })
+      .catch(() => setError('메일을 불러오지 못했습니다.'))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { loadPage(1); }, []);
+
+  if (loading && items.length === 0) return <div className="py-8 text-center text-mute">불러오는 중…</div>;
+  if (error && items.length === 0) {
+    return (
+      <div className="py-12 text-center">
+        <p className="text-[14px] text-mute">{error}</p>
+        <button onClick={() => loadPage(1)} className="mt-4 border border-ink px-6 py-2.5 text-sm hover:bg-tint">다시 시도</button>
+      </div>
+    );
+  }
+  if (items.length === 0) {
+    return <p className="py-12 text-center text-[14px] text-mute">받은 메일이 없습니다.</p>;
+  }
+  return (
+    <>
+    <ul className="divide-y divide-line border-y border-line">
+      {items.map((m) => {
+        const open = openId === m._id;
+        return (
+          <li key={m._id}>
+            <button
+              onClick={() => setOpenId(open ? null : m._id)}
+              className="flex w-full items-center gap-3 py-3.5 text-left text-sm hover:bg-tint/40"
+            >
+              <span className="w-16 shrink-0 border border-line px-1.5 py-0.5 text-center text-[11px] text-mute">
+                {EMAIL_TYPE_LABEL[m.type] || m.type}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{m.subject}</span>
+              <span className="w-24 shrink-0 text-right text-[12px] text-faint">
+                {m.createdAt?.slice(0, 10)}
+              </span>
+            </button>
+            {open && (
+              <div className="mb-3 whitespace-pre-line border border-line bg-tint/30 p-4 text-[13px] leading-relaxed">
+                {m.body}
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+    {items.length < total && (
+      <div className="mt-6 text-center">
+        <button
+          onClick={() => loadPage(page + 1)}
+          disabled={loading}
+          className="border border-line px-8 py-2.5 text-sm hover:bg-tint disabled:opacity-50"
+        >
+          {loading ? '불러오는 중…' : `더보기 (${items.length}/${total})`}
+        </button>
+      </div>
+    )}
+    </>
+  );
+}
+
 const TABS = [
   { id: 'profile', label: '내 정보' },
   { id: 'address', label: '배송지 관리' },
   { id: 'orders', label: '주문 내역' },
   { id: 'wishlist', label: '찜한 상품' },
+  { id: 'emails', label: '받은 메일함' },
 ];
 
 export default function MyPage() {
@@ -411,6 +491,7 @@ export default function MyPage() {
           {tab === 'address' && <AddressTab />}
           {tab === 'orders' && <OrdersTab />}
           {tab === 'wishlist' && <WishlistTab />}
+          {tab === 'emails' && <EmailsTab />}
         </div>
       </div>
     </div>

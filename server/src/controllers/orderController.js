@@ -1,5 +1,6 @@
 import Order from '../models/Order.js';
 import Product from '../models/Product.js';
+import { sendOrderPlaced, sendOrderStatus } from '../services/emailService.js';
 
 const SHIPPING_FEE = 3000;
 const FREE_SHIPPING_THRESHOLD = 50000; // 5만원 이상 무료배송
@@ -124,6 +125,13 @@ export async function createOrder(req, res) {
     /* salesCount 갱신 실패는 주문을 실패시키지 않음 */
   }
 
+  // 주문 접수 메일(목업) — 실패해도 주문은 성립
+  try {
+    await sendOrderPlaced(order, req.user);
+  } catch {
+    /* 메일 생성 실패는 주문을 실패시키지 않음 */
+  }
+
   res.status(201).json(order);
 }
 
@@ -187,6 +195,14 @@ export async function cancelOrder(req, res) {
   order.status = 'cancelled';
   await order.save();
   await adjustSales(order.items, -1); // 판매량 원복
+
+  // 취소 안내 메일(목업, 주문 소유자 앞) — 실패해도 취소는 성립
+  try {
+    await order.populate('user', 'name email');
+    await sendOrderStatus(order, order.user);
+  } catch {
+    /* 메일 생성 실패 무시 */
+  }
   res.json(order);
 }
 
@@ -206,9 +222,10 @@ export async function updateOrderStatus(req, res) {
   const order = await Order.findById(req.params.id);
   if (!order) return res.status(404).json({ message: '주문을 찾을 수 없습니다.' });
 
-  const allowed = TRANSITIONS[order.status] || [];
+  const prev = order.status; // 실제 상태 전이 여부 판단용
+  const allowed = TRANSITIONS[prev] || [];
   if (!allowed.includes(next)) {
-    return res.status(400).json({ message: `'${order.status}' 상태에서 '${next}'(으)로 변경할 수 없습니다.` });
+    return res.status(400).json({ message: `'${prev}' 상태에서 '${next}'(으)로 변경할 수 없습니다.` });
   }
 
   // 배송중 전환/송장 수정 시 송장번호 필수
@@ -226,7 +243,16 @@ export async function updateOrderStatus(req, res) {
   // 취소 전이 시 판매량 원복 (cancelled는 종료라 재가산 경로 없음)
   if (willCancel) await adjustSales(order.items, -1);
 
-  await order.populate('user', 'name email'); // 응답 일관성 (상세 화면 고객정보 유지)
+  // 응답용 populate + 상태 안내 메일(목업) — 둘 다 실패해도 상태변경은 이미 성립
+  // 실제 상태 전이(next!==prev)일 때만 발송: shipped→shipped(송장 수정) 재발송 방지
+  try {
+    await order.populate('user', 'name email');
+    if (next !== prev && ['shipped', 'delivered', 'cancelled'].includes(next)) {
+      await sendOrderStatus(order, order.user);
+    }
+  } catch {
+    /* populate/메일 실패는 상태변경을 실패시키지 않음 */
+  }
   res.json(order);
 }
 

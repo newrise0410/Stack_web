@@ -8,6 +8,7 @@ import productsRouter from './routes/products.js';
 import ordersRouter from './routes/orders.js';
 import reviewsRouter from './routes/reviews.js';
 import wishlistRouter from './routes/wishlist.js';
+import emailsRouter from './routes/emails.js';
 import adminRouter from './routes/admin.js';
 import { notFound, errorHandler } from './middleware/errorHandler.js';
 
@@ -37,6 +38,7 @@ export function createApp() {
   app.use('/orders', ordersRouter);
   app.use('/reviews', reviewsRouter);
   app.use('/wishlist', wishlistRouter);
+  app.use('/emails', emailsRouter);
   app.use('/admin', adminRouter);
 
   app.use(notFound); // 404 fallback
