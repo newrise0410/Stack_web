@@ -9,10 +9,14 @@ export function cldUrl(url, { w } = {}) {
   return url.replace('/upload/', `/upload/${t.join(',')}/`);
 }
 
-// 관리자 이미지 업로드 → { url, publicId }. axios가 FormData의 multipart 헤더를 자동 설정한다.
+// 관리자 이미지 업로드 → { url, publicId }.
+// api 인스턴스 기본 Content-Type이 application/json이라, FormData 전송 시 undefined로 덮어써
+// 브라우저가 multipart/form-data 경계(boundary)를 자동 설정하도록 한다(안 그러면 서버가 파일을 못 받음).
 export async function uploadProductImage(file) {
   const fd = new FormData();
   fd.append('file', file);
-  const { data } = await api.post('/admin/uploads', fd);
+  const { data } = await api.post('/admin/uploads', fd, {
+    headers: { 'Content-Type': undefined },
+  });
   return data;
 }
