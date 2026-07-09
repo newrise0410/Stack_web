@@ -230,7 +230,7 @@ export default function Product() {
       {/* detail image */}
       <section className="mx-auto mt-16 max-w-[900px] px-5">
         <div className="overflow-hidden bg-tint">
-          <img src={cldUrl(product.image, { w: 1200 })} alt={`${product.ko} 상세`} className="w-full object-cover" />
+          <img src={cldUrl(product.image, { w: 1200 })} alt={`${product.ko} 상세`} className="aspect-[4/5] w-full object-cover" />
         </div>
         <div className="py-12 text-center">
           <h2 className="text-xl font-bold tracking-tight">층이 곧 표면입니다</h2>

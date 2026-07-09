@@ -1,5 +1,16 @@
 import Product from '../models/Product.js';
 import { pick } from '../utils/pick.js';
+import { destroyUnreferenced, publicIdFromUrl } from '../utils/cloudinaryUrl.js';
+
+// 후보 URL 중 "다른 상품이 더는 참조하지 않는" Cloudinary 자산만 골라 정리한다.
+// 같은 URL을 여러 상품이 공유하는 경우(복제·수동 입력) 살아있는 자산을 오삭제하지 않도록 방어.
+async function cleanupOrphanImages(candidateUrls) {
+  const cloud = (candidateUrls || []).filter((u) => publicIdFromUrl(u)); // Cloudinary URL만
+  if (cloud.length === 0) return;
+  const stillUsed = await Product.find({ images: { $in: cloud } }, { images: 1 });
+  const used = new Set(stillUsed.flatMap((p) => p.images || []));
+  await destroyUnreferenced(cloud.filter((u) => !used.has(u)));
+}
 
 const FIELDS = [
   'slug', 'brand', 'name', 'nameKo', 'category', 'type', 'description',
@@ -82,12 +93,23 @@ export async function createProduct(req, res) {
 
 // UPDATE — PATCH /products/:slug (admin)
 export async function updateProduct(req, res) {
+  const updates = pick(req.body, FIELDS);
+  // images를 교체하는 요청만 옛 이미지 정리가 필요하므로, 그때만 이전 images를 미리 읽는다.
+  const touchesImages = Object.prototype.hasOwnProperty.call(updates, 'images');
+  const before = touchesImages
+    ? await Product.findOne({ slug: req.params.slug }, { images: 1 })
+    : null;
   const product = await Product.findOneAndUpdate(
     { slug: req.params.slug },
-    pick(req.body, FIELDS),
+    updates,
     { new: true, runValidators: true },
   );
   if (!product) return res.status(404).json({ message: '상품을 찾을 수 없습니다.' });
+  // 더 이상 참조되지 않는 옛 Cloudinary 자산 정리(best-effort)
+  if (touchesImages) {
+    const kept = new Set(product.images || []);
+    await cleanupOrphanImages((before?.images || []).filter((u) => !kept.has(u)));
+  }
   res.json(product);
 }
 
@@ -95,5 +117,7 @@ export async function updateProduct(req, res) {
 export async function deleteProduct(req, res) {
   const removed = await Product.findOneAndDelete({ slug: req.params.slug });
   if (!removed) return res.status(404).json({ message: '상품을 찾을 수 없습니다.' });
+  // 삭제된 상품의 Cloudinary 자산 정리(best-effort) — DB 참조가 사라지면 회수 불가
+  await cleanupOrphanImages(removed.images);
   res.status(204).end();
 }

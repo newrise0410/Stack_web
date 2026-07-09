@@ -4,6 +4,7 @@ import ProductCard from '../components/ProductCard.jsx';
 import { fetchProducts } from '../lib/products.js';
 import { Loading, LoadError } from '../components/Loading.jsx';
 import useDocumentTitle from '../lib/useDocumentTitle.js';
+import { cldUrl } from '../lib/cloudinary.js';
 
 function SectionHead({ title, tagline, href }) {
   return (
@@ -82,8 +83,9 @@ export default function Home() {
         <Link to={`/objects/${hero.id}`} className="group block">
           <div className="relative h-[62vh] min-h-[420px] w-full overflow-hidden bg-tint">
             <img
-              src={hero.image}
+              src={cldUrl(hero.image, { w: 1600 })}
               alt={hero.ko}
+              fetchpriority="high"
               className="h-full w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-105"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent" />
@@ -119,7 +121,7 @@ export default function Home() {
         >
           <div className="overflow-hidden bg-tint">
             <img
-              src={feature.image}
+              src={cldUrl(feature.image, { w: 1200 })}
               alt={feature.ko}
               className="h-full min-h-[280px] w-full object-cover transition-transform duration-700 group-hover:scale-105"
             />

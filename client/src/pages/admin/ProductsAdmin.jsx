@@ -70,18 +70,18 @@ function ProductForm({ initial, onDone, onCancel }) {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const toast = useToast();
-  const [uploadingId, setUploadingId] = useState(null);
+  const [uploadingIds, setUploadingIds] = useState(() => new Set()); // 동시 업로드 중인 슬롯 id들
 
   const uploadTo = async (img, file) => {
     if (!file) return;
-    setUploadingId(img.id);
+    setUploadingIds((s) => new Set(s).add(img.id));
     try {
       const { url } = await uploadProductImage(file);
       setF((s) => ({ ...s, images: s.images.map((x) => (x.id === img.id ? { ...x, url } : x)) }));
     } catch (e) {
       toast.error(e.response?.data?.message || '업로드에 실패했습니다.');
     } finally {
-      setUploadingId(null);
+      setUploadingIds((s) => { const n = new Set(s); n.delete(img.id); return n; });
     }
   };
 
@@ -102,6 +102,8 @@ function ProductForm({ initial, onDone, onCancel }) {
 
   const submit = async (e) => {
     e.preventDefault();
+    // 업로드가 끝나기 전 저장하면 아직 안 채워진 옛 URL이 직렬화된다 → 업로드 완료까지 차단
+    if (busy || uploadingIds.size > 0) return;
     setErr(''); setBusy(true);
     try {
       const body = toBody(f);
@@ -155,12 +157,13 @@ function ProductForm({ initial, onDone, onCancel }) {
                   {img.url && <img src={img.url} alt="" className="h-full w-full object-cover" />}
                 </div>
                 <input className={inputCls} value={img.url} onChange={(e) => setImage(i, e.target.value)} placeholder="https://..." />
-                <label className="shrink-0 cursor-pointer border border-line px-2 py-2 text-[12px] hover:bg-tint">
-                  {uploadingId === img.id ? '…' : '업로드'}
+                <label className={`shrink-0 border border-line px-2 py-2 text-[12px] ${uploadingIds.has(img.id) ? 'cursor-default opacity-50' : 'cursor-pointer hover:bg-tint'}`}>
+                  {uploadingIds.has(img.id) ? '…' : '업로드'}
                   <input
                     type="file"
                     accept="image/jpeg,image/png,image/webp,image/gif"
                     className="hidden"
+                    disabled={uploadingIds.has(img.id)}
                     onChange={(e) => { uploadTo(img, e.target.files?.[0]); e.target.value = ''; }}
                   />
                 </label>
@@ -211,8 +214,8 @@ function ProductForm({ initial, onDone, onCancel }) {
 
       {err && <p className="mt-3 rounded bg-red-50 px-3 py-2 text-[13px] text-sale">{err}</p>}
       <div className="mt-4 flex gap-2">
-        <button type="submit" disabled={busy} className="bg-ink px-6 py-2.5 text-sm font-medium text-paper hover:bg-ink/85 disabled:opacity-50">
-          {busy ? '저장 중…' : '저장'}
+        <button type="submit" disabled={busy || uploadingIds.size > 0} className="bg-ink px-6 py-2.5 text-sm font-medium text-paper hover:bg-ink/85 disabled:opacity-50">
+          {busy ? '저장 중…' : uploadingIds.size > 0 ? '업로드 중…' : '저장'}
         </button>
         <button type="button" onClick={onCancel} className="border border-line px-6 py-2.5 text-sm hover:bg-tint">취소</button>
       </div>

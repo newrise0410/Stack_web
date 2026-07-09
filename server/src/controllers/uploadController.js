@@ -16,13 +16,24 @@ export async function uploadImage(req, res) {
   try {
     const result = await new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
-        { folder: UPLOAD_FOLDER, resource_type: 'image' },
+        {
+          folder: UPLOAD_FOLDER,
+          resource_type: 'image',
+          // 서버측(실제 바이트 기준) 형식 게이트 — 클라 mimetype 검사는 defense-in-depth로 강등
+          allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'gif'],
+        },
         (err, out) => (err ? reject(err) : resolve(out)),
       );
       stream.end(req.file.buffer);
     });
     return res.status(201).json({ url: result.secure_url, publicId: result.public_id });
-  } catch {
+  } catch (err) {
+    // 진단 단서를 남긴다(auth 401 / quota 420 / 형식 400 / 타임아웃 구분)
+    console.error('[upload]', err?.http_code, err?.message);
+    // Cloudinary가 형식을 거부하면 400 — 서버 오류(502)가 아니라 클라 입력 오류로 매핑
+    if (err?.http_code === 400) {
+      return res.status(400).json({ message: '허용되지 않은 이미지 형식입니다. (jpeg/png/webp/gif)' });
+    }
     return res.status(502).json({ message: '이미지 업로드에 실패했습니다.' });
   }
 }

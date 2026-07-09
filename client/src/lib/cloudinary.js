@@ -6,6 +6,9 @@ export function cldUrl(url, { w } = {}) {
   if (!url || !url.includes('res.cloudinary.com') || !url.includes('/upload/')) return url;
   const t = ['f_auto', 'q_auto'];
   if (w) t.push(`w_${w}`);
+  // 작은 이미지(카드·썸네일)는 레티나에서 흐려지므로 2x로 선명하게.
+  // 히어로·상세(대형)는 이미 커서 dpr까지 올리면 LCP 바이트만 늘어 제외.
+  if (w && w <= 900) t.push('dpr_2.0');
   return url.replace('/upload/', `/upload/${t.join(',')}/`);
 }
 

@@ -53,6 +53,22 @@ MONGODB_URI="<위 Atlas 문자열>" npm run seed
 
 > 관리자 계정은 배포 후 회원가입 → Atlas(Compass 또는 Atlas UI)에서 해당 유저의 `role`을 `admin`으로 변경.
 
+### 이미지 → Cloudinary 마이그레이션 (선택, seed 뒤에)
+
+시드 상품은 `client/public/products/lamp/...` 로컬 경로를 가리킵니다. Cloudinary로 옮기려면
+**seed를 먼저 돌린 뒤**(상품이 있어야 함) 아래를 실행하면, 로컬 이미지를 업로드하고 상품의
+`images`를 Cloudinary URL로 덮어씁니다. `public_id`가 파일명으로 고정돼 **여러 번 돌려도 안전(멱등)** 합니다.
+
+```bash
+cd /Users/sw/project/stacknstak/server
+MONGODB_URI="<Atlas 문자열>" CLOUDINARY_URL="<cloudinary URL>" \
+  MIGRATE_CONFIRM=yes npm run migrate:images
+# → 완료 — 변경 상품 N / 업로드 N / 실패 0
+```
+
+> 마이그레이션을 건너뛰어도 됩니다 — 로컬 `/products/...` 이미지는 프론트에서 그대로 렌더되고,
+> 렌더 최적화 헬퍼(`cldUrl`)가 로컬 경로는 변환 없이 통과시킵니다.
+
 ---
 
 ## 2. 백엔드 배포 (Render)
@@ -66,10 +82,15 @@ MONGODB_URI="<위 Atlas 문자열>" npm run seed
    | `JWT_SECRET` | 긴 랜덤 문자열 (아래 명령으로 생성) |
    | `CLIENT_ORIGIN` | *(3단계 Vercel 주소 나온 뒤 입력)* |
    | `JWT_EXPIRES_IN` | `7d` (기본값) |
+   | `CLOUDINARY_URL` | Cloudinary 대시보드 → API Environment variable (`cloudinary://<key>:<secret>@<cloud>`) *(선택 — 미설정 시 관리자 이미지 업로드만 503)* |
 
    ```bash
    openssl rand -hex 32   # JWT_SECRET 생성용
    ```
+
+   > **이미지 업로드(Cloudinary):** 관리자 상품 이미지 업로드는 Cloudinary를 씁니다.
+   > `CLOUDINARY_URL`을 넣지 않으면 업로드 엔드포인트만 **503**을 반환하고 나머지 기능은 정상 동작합니다.
+   > (3개 분리 형식 `CLOUDINARY_CLOUD_NAME`/`CLOUDINARY_API_KEY`/`CLOUDINARY_API_SECRET`도 지원)
 3. 배포 완료 후 URL 확인 (예: `https://stacknstak-api.onrender.com`)
    - `https://<render주소>/health` 접속 → `{"status":"ok"}` 뜨면 성공
    - `https://<render주소>/products` → 상품 14개 JSON
