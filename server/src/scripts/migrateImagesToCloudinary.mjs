@@ -12,7 +12,7 @@ if (process.env.MIGRATE_CONFIRM !== 'yes') {
   process.exit(1);
 }
 if (!isConfigured()) {
-  console.error('Cloudinary 환경변수(CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET)가 필요합니다.');
+  console.error('Cloudinary 환경변수(CLOUDINARY_URL 또는 CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET)가 필요합니다.');
   process.exit(1);
 }
 

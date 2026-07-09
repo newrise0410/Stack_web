@@ -1,3 +1,4 @@
+import './cloudinaryEnvGuard.js'; // ⚠️ cloudinary import보다 먼저 — 잘못된 CLOUDINARY_URL을 정리해 부팅 크래시 방지
 import { v2 as cloudinary } from 'cloudinary';
 
 const { CLOUDINARY_URL, CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } = process.env;
@@ -9,9 +10,9 @@ const { CLOUDINARY_URL, CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_AP
 const has3Part = Boolean(CLOUDINARY_CLOUD_NAME && CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET);
 const hasUrl = Boolean(CLOUDINARY_URL);
 
-export function isConfigured() {
-  return hasUrl || has3Part;
-}
+// 실제 설정 성공 여부. 잘못된 CLOUDINARY_URL(스킴 누락·따옴표·개행 등)은 SDK가 import 시점에
+// 동기 throw하므로, try/catch로 감싸 부팅 크래시 대신 "미설정(→503)"으로 안전하게 강등한다.
+let configured = false;
 
 if (has3Part) {
   cloudinary.config({
@@ -20,9 +21,19 @@ if (has3Part) {
     api_secret: CLOUDINARY_API_SECRET,
     secure: true,
   });
+  configured = true;
 } else if (hasUrl) {
-  // SDK가 process.env.CLOUDINARY_URL에서 cloud_name/api_key/api_secret을 파싱한다. secure만 덧붙인다.
-  cloudinary.config({ secure: true });
+  try {
+    // SDK가 process.env.CLOUDINARY_URL에서 cloud_name/api_key/api_secret을 파싱한다. secure만 덧붙인다.
+    cloudinary.config({ secure: true });
+    configured = Boolean(cloudinary.config().cloud_name); // 파싱 성공(cloud_name 채워짐) 확인
+  } catch {
+    configured = false; // 형식 오류 → 미설정 처리(엔드포인트가 503 반환)
+  }
+}
+
+export function isConfigured() {
+  return configured;
 }
 
 export { cloudinary };
