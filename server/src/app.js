@@ -19,6 +19,9 @@ import { notFound, errorHandler } from './middleware/errorHandler.js';
 export function createApp() {
   const app = express();
 
+  // Render 등 리버스 프록시 뒤에서 req.ip를 실제 클라이언트 IP로 잡게 한다(rate limit 키 정확도).
+  app.set('trust proxy', 1);
+
   // 허용 오리진: CLIENT_ORIGIN(쉼표구분)에 프론트 도메인 지정.
   // 미설정 시 전체 허용(로컬 개발 편의).
   const allowedOrigins = (process.env.CLIENT_ORIGIN || '')

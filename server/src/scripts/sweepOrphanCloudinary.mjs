@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import mongoose from 'mongoose';
 import Product from '../models/Product.js';
+import Order from '../models/Order.js';
 import { cloudinary, isConfigured, UPLOAD_FOLDER } from '../config/cloudinary.js';
 import { publicIdFromUrl } from '../utils/cloudinaryUrl.js';
 
@@ -16,12 +17,20 @@ const DRY = process.env.SWEEP_CONFIRM !== 'yes';
 const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/stacknstak';
 await mongoose.connect(uri);
 
-// 1) DB가 참조하는 모든 public_id 수집
-const products = await Product.find({}, { images: 1 });
+// 1) DB가 참조하는 모든 public_id 수집 — 상품 images + 과거 주문의 항목 스냅샷 image
 const referenced = new Set();
+const products = await Product.find({}, { images: 1 });
 for (const p of products) {
   for (const url of p.images || []) {
     const id = publicIdFromUrl(url);
+    if (id) referenced.add(id);
+  }
+}
+// 주문은 주문시점 이미지 URL을 고정 저장하므로 상품에서 빠졌어도 보호해야 한다.
+const orders = await Order.find({}, { 'items.image': 1 });
+for (const o of orders) {
+  for (const it of o.items || []) {
+    const id = publicIdFromUrl(it.image);
     if (id) referenced.add(id);
   }
 }

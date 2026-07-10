@@ -1,8 +1,10 @@
 import api from './api.js';
 
 // 주문 생성 — 서버가 DB 상품가로 합계를 재계산한다.
-export async function createOrder(payload) {
-  const { data } = await api.post('/orders', payload);
+// idempotencyKey를 주면 헤더로 전달 → 응답 유실 후 재시도 시 서버가 중복 주문을 만들지 않는다.
+export async function createOrder(payload, idempotencyKey) {
+  const config = idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined;
+  const { data } = await api.post('/orders', payload, config);
   return data;
 }
 

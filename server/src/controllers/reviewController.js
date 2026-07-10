@@ -1,5 +1,6 @@
 import Review from '../models/Review.js';
 import Product from '../models/Product.js';
+import Order from '../models/Order.js';
 
 const VISIBLE = ['active', 'soldout']; // 공개 상세와 동일한 노출 정책
 
@@ -37,6 +38,16 @@ export async function createReview(req, res) {
   const product = await Product.findOne({ slug: req.params.slug }).select('_id status');
   if (!product || !VISIBLE.includes(product.status)) {
     return res.status(404).json({ message: '상품을 찾을 수 없습니다.' });
+  }
+
+  // 구매 검증 — 실제 구매(취소 제외)한 상품에만 리뷰 작성 가능
+  const purchased = await Order.exists({
+    user: req.user._id,
+    'items.product': product._id,
+    status: { $in: ['paid', 'preparing', 'shipped', 'delivered'] },
+  });
+  if (!purchased) {
+    return res.status(403).json({ message: '구매하신 상품에만 리뷰를 작성할 수 있습니다.' });
   }
 
   const rating = parseInt(req.body.rating, 10);

@@ -11,6 +11,10 @@ export async function requireAuth(req, res, next) {
     const payload = verifyToken(token);
     const user = await User.findById(payload.sub);
     if (!user) return res.status(401).json({ message: '유효하지 않은 토큰입니다.' });
+    // 정지 계정은 기존 토큰이 남아 있어도 실시간 차단 (로그인 차단만으론 최대 만료까지 유효)
+    if (user.status === 'suspended') {
+      return res.status(403).json({ message: '정지된 계정입니다. 고객센터에 문의해주세요.' });
+    }
 
     req.user = user;
     return next();

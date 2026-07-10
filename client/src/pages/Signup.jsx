@@ -36,7 +36,7 @@ export default function Signup() {
     e.preventDefault();
     setError('');
 
-    if (form.password.length < 6) return setError('비밀번호는 6자 이상이어야 합니다.');
+    if (form.password.length < 8) return setError('비밀번호는 8자 이상이어야 합니다.');
     if (form.password !== form.passwordConfirm) return setError('비밀번호가 일치하지 않습니다.');
     if (!agree.terms || !agree.privacy || !agree.age) {
       return setError('필수 약관에 동의해주세요.');
@@ -74,7 +74,7 @@ export default function Signup() {
       <form onSubmit={onSubmit} className="mt-8 space-y-3">
         <input className={inputCls} type="email" name="email" placeholder="이메일"
           autoComplete="email" value={form.email} onChange={onChange} required />
-        <input className={inputCls} type="password" name="password" placeholder="비밀번호 (6자 이상)"
+        <input className={inputCls} type="password" name="password" placeholder="비밀번호 (8자 이상)"
           autoComplete="new-password" value={form.password} onChange={onChange} required />
         <input className={inputCls} type="password" name="passwordConfirm" placeholder="비밀번호 확인"
           autoComplete="new-password" value={form.passwordConfirm} onChange={onChange} required />

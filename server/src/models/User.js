@@ -128,6 +128,10 @@ userSchema.pre('validate', function requireLocalPassword(next) {
   if (this.isNew && this.provider === 'local' && !this.passwordHash && !this._password) {
     this.invalidate('password', '비밀번호는 필수입니다.');
   }
+  // 서버 권위 최소 길이 — 클라 검증을 우회한 직접 API 호출(POST {password:"1"})을 차단
+  if (this._password != null && String(this._password).length < 8) {
+    this.invalidate('password', '비밀번호는 8자 이상이어야 합니다.');
+  }
   next();
 });
 

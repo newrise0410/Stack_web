@@ -1,14 +1,22 @@
 import Product from '../models/Product.js';
+import Order from '../models/Order.js';
 import { pick } from '../utils/pick.js';
 import { destroyUnreferenced, publicIdFromUrl } from '../utils/cloudinaryUrl.js';
 
-// 후보 URL 중 "다른 상품이 더는 참조하지 않는" Cloudinary 자산만 골라 정리한다.
-// 같은 URL을 여러 상품이 공유하는 경우(복제·수동 입력) 살아있는 자산을 오삭제하지 않도록 방어.
+// 후보 URL 중 "더 이상 어디서도 참조하지 않는" Cloudinary 자산만 골라 정리한다.
+// 참조로 인정하는 곳: (1) 다른 상품의 images(복제·수동 입력 공유), (2) 과거 주문의 항목 스냅샷 image
+// (주문은 주문시점 이미지 URL을 고정 저장하므로, 상품에서 빠졌어도 주문 내역이 여전히 참조 → 오삭제 금지).
 async function cleanupOrphanImages(candidateUrls) {
   const cloud = (candidateUrls || []).filter((u) => publicIdFromUrl(u)); // Cloudinary URL만
   if (cloud.length === 0) return;
-  const stillUsed = await Product.find({ images: { $in: cloud } }, { images: 1 });
-  const used = new Set(stillUsed.flatMap((p) => p.images || []));
+  const [usedByProducts, usedByOrders] = await Promise.all([
+    Product.find({ images: { $in: cloud } }, { images: 1 }),
+    Order.find({ 'items.image': { $in: cloud } }, { 'items.image': 1 }),
+  ]);
+  const used = new Set([
+    ...usedByProducts.flatMap((p) => p.images || []),
+    ...usedByOrders.flatMap((o) => (o.items || []).map((it) => it.image)),
+  ]);
   await destroyUnreferenced(cloud.filter((u) => !used.has(u)));
 }
 

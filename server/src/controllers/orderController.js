@@ -34,29 +34,33 @@ async function adjustSales(items, sign) {
   );
 }
 
-// 취소 시 혜택 원복 — 쿠폰 복구 + 적립금(사용분 환급·적립분 회수). 실패해도 취소는 성립.
+// 취소 시 혜택 원복 — 쿠폰 복구 + 적립금(사용분 환급·적립분 회수).
+// 멱등(refund/reclaim 원장 존재 시 재실행 안 함)하므로 부분 실패 후 안전하게 재수렴 가능.
+// 모든 단계 성공 시에만 order.benefitsReversed=true 확정 — 중간 실패는 flag=false로 남아 재시도 대상.
 async function reverseOrderBenefits(order) {
+  if (order.benefitsReversed) return; // 이미 원복 완료
+  const userId = order.user?._id || order.user;
+
+  // 쿠폰 복구 (used:false 세팅이라 재실행 안전)
   if (order.coupon?.code) {
     await UserCoupon.updateOne(
       { usedOrder: order._id },
       { used: false, usedOrder: null, usedAt: null },
     );
   }
+  // 사용분 환급 — 이미 환급 원장이 있으면 재환급 금지(멱등). pointsUsed는 생성 전 실제 차감량.
   const pointsUsed = order.amounts?.pointsUsed || 0;
-  const userId = order.user?._id || order.user;
-  if (pointsUsed > 0) {
-    // 사용분 환급 — pointsUsed는 주문 생성 전 실제 차감량이라 그대로 되돌린다
+  if (pointsUsed > 0 && !(await PointTransaction.exists({ order: order._id, type: 'refund' }))) {
     await applyPoints(userId, pointsUsed, 'refund', { order: order._id, note: `주문 ${order.orderNumber} 취소 환급` });
   }
-  // 적립분 회수 — 예정치(order.pointsEarned)가 아니라 "실제 적립된 원장 합계"만 회수한다.
-  // (적립 applyPoints는 best-effort라 실패로 미적립일 수 있음. 예정치를 회수하면 적립도 안 됐는데
-  //  가입보너스 등 무관한 잔액에서 빼가는 비대칭이 생기므로, 실제 earn 트랜잭션 합만 되돌린다.)
+  // 적립분 회수 — 예정치가 아니라 "실제 적립된 원장 합계"만, 이미 회수 원장이 있으면 재회수 금지(멱등).
   const earnTxns = await PointTransaction.find({ order: order._id, type: 'earn' }).select('amount');
   const actualEarned = earnTxns.reduce((sum, t) => sum + (t.amount || 0), 0);
-  if (actualEarned > 0) {
-    // 이미 소진돼 잔액이 모자라면 0까지만 회수 — applyPoints가 클램프
+  if (actualEarned > 0 && !(await PointTransaction.exists({ order: order._id, type: 'reclaim' }))) {
     await applyPoints(userId, -actualEarned, 'reclaim', { order: order._id, note: `주문 ${order.orderNumber} 취소 적립회수` });
   }
+  // 모든 원복 단계가 성공했을 때만 플래그 확정
+  await Order.updateOne({ _id: order._id }, { $set: { benefitsReversed: true } });
 }
 
 // 주문 생성 — POST /orders (requireAuth)
@@ -72,6 +76,14 @@ export async function createOrder(req, res) {
   }
   if (!shippingAddress?.recipient || !shippingAddress?.address1) {
     return res.status(400).json({ message: '배송지 정보를 입력해주세요.' });
+  }
+
+  // 멱등키(재시도 방어): 같은 사용자+키의 주문이 이미 있으면 부작용 없이 그 주문을 반환한다.
+  // (응답 유실 후 동일 요청 재시도 시 중복 주문·중복 적립/판매 방지 — 부작용 실행 전에 선차단)
+  const idempotencyKey = String(req.get('Idempotency-Key') || req.body.idempotencyKey || '').trim().slice(0, 100) || null;
+  if (idempotencyKey) {
+    const existing = await Order.findOne({ user: req.user._id, idempotencyKey });
+    if (existing) return res.status(200).json(existing);
   }
 
   // 항목 정규화 + 검증 (null·타입오염 방지, 수량 상한)
@@ -100,9 +112,9 @@ export async function createOrder(req, res) {
     if (!p) {
       return res.status(400).json({ message: `현재 구매할 수 없는 상품이 있습니다: ${it.slug}` });
     }
-    // 옵션이 있는 상품이면 실제 존재하는 옵션만 허용
-    if (it.option && p.options.length > 0 && !p.options.includes(it.option)) {
-      return res.status(400).json({ message: `선택할 수 없는 옵션입니다: ${it.option}` });
+    // 옵션이 있는 상품은 유효 옵션을 반드시 지정해야 한다(누락·비유효 모두 거절)
+    if (p.options.length > 0 && (!it.option || !p.options.includes(it.option))) {
+      return res.status(400).json({ message: `옵션을 선택해주세요: ${p.nameKo || p.name}` });
     }
     orderItems.push({
       product: p._id,
@@ -145,7 +157,16 @@ export async function createOrder(req, res) {
         { new: true, upsert: true },
       );
     } catch (e) {
-      if (e.code === 11000) return res.status(400).json({ message: '이미 사용한 쿠폰입니다.' });
+      if (e.code === 11000) {
+        // 동시 중복요청(같은 멱등키)에서 쿠폰 선점 패자가 여기 도달할 수 있다. 승자 주문이 이미
+        // 있으면 '이미 사용한 쿠폰' 400 대신 그 주문으로 멱등 수렴시킨다(초입 findOne을 이 경합
+        // 지점에도 복제). 아직 승자 주문 생성 전인 좁은 창이면 400이 나가되, 재시도 시 초입에서 수렴.
+        if (idempotencyKey) {
+          const existing = await Order.findOne({ user: req.user._id, idempotencyKey });
+          if (existing) return res.status(200).json(existing);
+        }
+        return res.status(400).json({ message: '이미 사용한 쿠폰입니다.' });
+      }
       throw e;
     }
   }
@@ -180,8 +201,20 @@ export async function createOrder(req, res) {
     amounts: { itemsTotal, couponDiscount, shippingFee, pointsUsed, grandTotal },
     coupon: { code: couponDoc ? couponCode : '', discount: couponResult.discountTotal },
     pointsEarned,
+    idempotencyKey,
     status: 'paid', // mock 결제 즉시 완료
     paymentMethod: 'mock',
+  };
+
+  // 이 요청이 선차감/선점한 혜택을 원복한다(주문 생성 실패·중복 감지 공통 정리)
+  const refundReservedBenefits = async (note) => {
+    if (consumedUserCoupon) {
+      await UserCoupon.updateOne({ _id: consumedUserCoupon._id }, { used: false, usedAt: null }).catch(() => {});
+    }
+    if (pointsUsed > 0) {
+      await applyPoints(req.user._id, pointsUsed, 'refund', { note }).catch(() => {});
+      if (spendTxnId) await PointTransaction.deleteOne({ _id: spendTxnId }).catch(() => {});
+    }
   };
 
   // 주문번호 랜덤 충돌(E11000) 시 재시도
@@ -192,20 +225,21 @@ export async function createOrder(req, res) {
         order = await Order.create({ ...payload, orderNumber: genOrderNumber() });
         break;
       } catch (e) {
-        if (e.code === 11000 && attempt < 3) continue;
+        // 동시 중복 요청(같은 멱등키) — 승자 주문을 반환하고 이 요청의 선차감분은 원복
+        if (e.code === 11000 && e.keyPattern?.idempotencyKey && idempotencyKey) {
+          const existing = await Order.findOne({ user: req.user._id, idempotencyKey });
+          if (existing) {
+            await refundReservedBenefits('중복 주문 취소 환급');
+            return res.status(200).json(existing);
+          }
+        }
+        if (e.code === 11000 && attempt < 3) continue; // orderNumber 충돌 → 재시도
         throw e;
       }
     }
   } catch (e) {
     // 주문 생성 실패 → 선점/선차감한 혜택을 원복(사용자가 쿠폰·적립금을 잃지 않게)
-    if (consumedUserCoupon) {
-      await UserCoupon.updateOne({ _id: consumedUserCoupon._id }, { used: false, usedAt: null }).catch(() => {});
-    }
-    if (pointsUsed > 0) {
-      // 선차감분 환급 + 방금 만든 spend 원장 제거(주문이 없으므로 흔적 남기지 않음)
-      await applyPoints(req.user._id, pointsUsed, 'refund', { note: '주문 생성 실패 환급' }).catch(() => {});
-      if (spendTxnId) await PointTransaction.deleteOne({ _id: spendTxnId }).catch(() => {});
-    }
+    await refundReservedBenefits('주문 생성 실패 환급');
     throw e;
   }
 
@@ -228,12 +262,9 @@ export async function createOrder(req, res) {
       );
     } catch { /* 원장 주문 연결 실패는 주문을 실패시키지 않음 */ }
   }
-  // 구매 적립 — 실패해도 주문은 성립
-  if (pointsEarned > 0) {
-    try {
-      await applyPoints(req.user._id, pointsEarned, 'earn', { order: order._id, note: `주문 ${order.orderNumber} 적립` });
-    } catch { /* 적립 실패 무시 */ }
-  }
+  // 구매 적립은 여기서 지급하지 않고 배송완료(delivered) 전이 시점에 확정한다(updateOrderStatus).
+  // 생성 즉시 적립하면, 그 적립분을 다른 주문에 사용한 뒤 이 주문을 취소할 때 회수가 0으로
+  // 클램프되어 혜택이 영구히 남는 누수가 생기기 때문(적립은 배송확정 후에만 소진 가능해야 함).
 
   // 판매량 반영 (BEST 정렬용 salesCount) — 비핵심이므로 실패해도 주문은 성립시킨다
   try {
@@ -306,6 +337,19 @@ export async function cancelOrder(req, res) {
   if (String(order.user) !== String(req.user._id) && req.user.role !== 'admin') {
     return res.status(403).json({ message: '접근 권한이 없습니다.' });
   }
+  // 이미 취소됐지만 혜택 원복이 미완(부분 실패)이면 멱등 재실행으로 재수렴시킨다 — in-app 복구 경로.
+  if (order.status === 'cancelled') {
+    if (order.benefitsReversed) {
+      return res.status(400).json({ message: '이미 취소된 주문입니다.' });
+    }
+    try {
+      await reverseOrderBenefits(order);
+    } catch (e) {
+      console.error('[cancelOrder] 혜택 원복 재시도 실패:', order.orderNumber, e?.message);
+    }
+    const refreshed = await Order.findById(order._id).populate('user', 'name email');
+    return res.json(refreshed);
+  }
   if (!['paid', 'preparing'].includes(order.status)) {
     return res.status(400).json({ message: '이미 배송이 진행되어 취소할 수 없습니다.' });
   }
@@ -329,11 +373,11 @@ export async function cancelOrder(req, res) {
     /* salesCount 원복 실패 무시 */
   }
 
-  // 쿠폰(·적립금) 원복 — 실패해도 취소는 성립
+  // 쿠폰(·적립금) 원복 — 실패해도 취소는 성립(멱등이라 재시도로 재수렴). 삼키지 말고 로깅.
   try {
     await reverseOrderBenefits(cancelled);
-  } catch {
-    /* 혜택 원복 실패 무시 */
+  } catch (e) {
+    console.error('[cancelOrder] 혜택 원복 실패:', cancelled.orderNumber, e?.message);
   }
 
   // 취소 안내 메일(목업, 주문 소유자 앞) — 실패해도 취소는 성립
@@ -353,7 +397,7 @@ const TRANSITIONS = {
   paid: ['preparing', 'cancelled'],
   preparing: ['shipped', 'cancelled'],
   shipped: ['delivered', 'shipped'], // 동일상태 재요청 = 송장 수정용
-  delivered: [],
+  delivered: ['delivered'], // 동일상태 재요청 = 적립 지급 재시도용(멱등, 이메일 재발송 없음)
   cancelled: [],
 };
 
@@ -399,8 +443,25 @@ export async function updateOrderStatus(req, res) {
     }
     try {
       await reverseOrderBenefits(updated);
-    } catch {
-      /* 혜택 원복 실패 무시 */
+    } catch (e) {
+      console.error('[updateOrderStatus] 혜택 원복 실패:', updated.orderNumber, e?.message);
+    }
+  }
+
+  // 배송완료 전이 시 구매 적립 확정 지급 — 멱등(이미 적립 원장이 있으면 재지급 안 함).
+  // 생성 시점이 아닌 배송완료 시점에 적립해야, 취소 가능한 주문의 적립분 누수를 원천 차단한다.
+  // 지급 순간 일시 장애로 실패해도 delivered→delivered 재요청으로 다시 태울 수 있고(멱등),
+  // 동시 재요청은 {order,type:earn} unique 로 직렬화되어 이중 적립되지 않는다.
+  if (next === 'delivered' && updated.pointsEarned > 0) {
+    try {
+      const earned = await PointTransaction.exists({ order: updated._id, type: 'earn' });
+      if (!earned) {
+        await applyPoints(updated.user?._id || updated.user, updated.pointsEarned, 'earn', {
+          order: updated._id, note: `주문 ${updated.orderNumber} 적립`,
+        });
+      }
+    } catch (e) {
+      console.error('[updateOrderStatus] 적립 지급 실패:', updated.orderNumber, e?.message);
     }
   }
 

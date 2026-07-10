@@ -46,7 +46,11 @@ const orderSchema = new Schema(
       code: { type: String, default: '' }, // 적용 쿠폰 코드 스냅샷
       discount: { type: Number, default: 0 }, // 총 혜택(상품+배송 할인)
     },
-    pointsEarned: { type: Number, default: 0 }, // 적립 예정/적립액 (Phase C)
+    pointsEarned: { type: Number, default: 0 }, // 적립 예정액(배송완료 시 실제 적립) (Phase C)
+    // 취소 시 혜택(쿠폰·적립금) 원복 완료 여부. 부분 실패 시 false로 남아 재수렴(멱등 재실행)의 기준.
+    benefitsReversed: { type: Boolean, default: false },
+    // 주문 생성 idempotency 키(클라 생성). 재시도 시 중복 주문·중복 적립/판매 방지.
+    idempotencyKey: { type: String, default: null },
     status: {
       type: String,
       enum: ['pending', 'paid', 'preparing', 'shipped', 'delivered', 'cancelled'],
@@ -57,6 +61,12 @@ const orderSchema = new Schema(
     trackingNumber: { type: String, default: '' }, // 송장번호
   },
   { timestamps: true },
+);
+
+// 동일 사용자+동일 idempotencyKey는 단 하나의 주문만 — 키가 있는 문서에만 적용(partial)
+orderSchema.index(
+  { user: 1, idempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } },
 );
 
 orderSchema.set('toJSON', {

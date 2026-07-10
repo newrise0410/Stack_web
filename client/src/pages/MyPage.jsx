@@ -102,8 +102,10 @@ function AddressTab() {
     setErr(''); setBusy(true);
     try {
       await updateProfile({ addresses: next.map(cleanAddr) });
+      return true;
     } catch (e) {
       setErr(e.response?.data?.message || '저장에 실패했습니다.');
+      return false;
     } finally {
       setBusy(false);
     }
@@ -129,9 +131,11 @@ function AddressTab() {
     let next = [...addresses, { ...form }];
     if (form.isDefault) next = next.map((a, i) => ({ ...a, isDefault: i === next.length - 1 }));
     else if (next.length === 1) next[0].isDefault = true; // 첫 주소는 기본
-    await save(next);
-    setForm(emptyAddr);
-    setAdding(false);
+    // 저장 성공 시에만 폼 초기화·닫기 — 실패 시 입력 유지 + 에러 표시(입력 소실 방지)
+    if (await save(next)) {
+      setForm(emptyAddr);
+      setAdding(false);
+    }
   };
 
   const removeAddress = (idx) => save(addresses.filter((_, i) => i !== idx));

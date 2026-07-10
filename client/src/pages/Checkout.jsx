@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCart } from '../lib/cart.jsx';
 import { useAuth } from '../lib/auth.jsx';
-import { fetchProducts } from '../lib/products.js';
+import { fetchProductBySlug } from '../lib/products.js';
 import { createOrder } from '../lib/orders.js';
 import { fetchAvailableCoupons, claimCoupon } from '../lib/coupon.js';
 import { fetchMyPoints } from '../lib/points.js';
@@ -14,9 +14,10 @@ const SHIPPING_FEE = 3000;
 const EARN_RATE = 0.03;
 
 export default function Checkout() {
-  const { lines, clear } = useCart();
+  const { lines, remove } = useCart();
   const { user } = useAuth();
   const nav = useNavigate();
+  const idemKeyRef = useRef(null); // 주문 멱등키(재시도 시 재사용, 성공 시 리셋)
 
   const [catalog, setCatalog] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -35,14 +36,36 @@ export default function Checkout() {
   const [pointsInput, setPointsInput] = useState('');
 
   useEffect(() => {
-    fetchProducts({ limit: 100 })
-      .then(setCatalog)
-      .catch(() => setLoadErr(true))
-      .finally(() => setLoading(false));
+    // 장바구니에 담긴 slug만 개별 조회한다. 페이지네이션된 목록(limit:100)에 의존하면 활성 상품이
+    // 100개를 넘길 때 목록 밖의 정상 상품이 '품절'로 오표기되어 주문에서 조용히 빠지므로, 카트 상품만
+    // 정확히 가져와 status==='active'만 주문 가능으로 본다. 404(삭제)·품절은 missing으로 고지하되,
+    // 네트워크/5xx 같은 조회 실패는 전부 품절로 오인시키지 않도록 로드 에러로 처리한다.
+    const slugs = [...new Set(lines.map((l) => l.id))];
+    if (slugs.length === 0) {
+      setLoading(false);
+    } else {
+      Promise.all(
+        slugs.map((slug) =>
+          fetchProductBySlug(slug)
+            .then((p) => ({ ok: true, product: p.status === 'active' ? p : null }))
+            .catch((e) => ({ ok: e.response?.status === 404, product: null })),
+        ),
+      )
+        .then((results) => {
+          if (results.some((r) => !r.ok)) {
+            setLoadErr(true);
+            return;
+          }
+          setCatalog(results.map((r) => r.product).filter(Boolean));
+        })
+        .finally(() => setLoading(false));
+    }
     fetchMyPoints()
       .then((d) => setPointsBalance(d.balance))
       .catch(() => setPointsBalance(0))
       .finally(() => setPointsLoaded(true));
+    // 마운트 시점의 카트 기준으로 1회 로드 (이후 라인 변경은 rows/missing useMemo가 반영)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const addresses = user?.addresses || [];
@@ -58,6 +81,12 @@ export default function Checkout() {
       lines
         .map((l) => ({ ...l, product: catalog.find((p) => p.id === l.id) }))
         .filter((r) => r.product),
+    [lines, catalog],
+  );
+
+  // 카탈로그(활성 상품)에 없는 장바구니 라인 = 품절/판매중지 등으로 주문 불가 → 조용히 빼지 않고 고지.
+  const missing = useMemo(
+    () => lines.filter((l) => !catalog.find((p) => p.id === l.id)),
     [lines, catalog],
   );
 
@@ -129,22 +158,31 @@ export default function Checkout() {
   const onPay = async () => {
     setErr('');
     if (!selectedAddr) return setErr('배송지를 선택해주세요.');
+    // 재시도 시 같은 키를 재사용해 서버가 중복 주문을 만들지 않게 한다(성공 시 아래에서 리셋).
+    if (!idemKeyRef.current) {
+      idemKeyRef.current = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
     setBusy(true);
     try {
-      const order = await createOrder({
-        items: rows.map((r) => ({ slug: r.id, qty: r.qty, option: r.option })),
-        couponCode: selectedCoupon ? couponCode : undefined,
-        pointsToUse: pointsToUse > 0 ? pointsToUse : undefined,
-        shippingAddress: {
-          recipient: selectedAddr.recipient,
-          phone: selectedAddr.phone,
-          zipcode: selectedAddr.zipcode,
-          address1: selectedAddr.address1,
-          address2: selectedAddr.address2,
-          deliveryMemo: memo || selectedAddr.deliveryMemo,
+      const order = await createOrder(
+        {
+          items: rows.map((r) => ({ slug: r.id, qty: r.qty, option: r.option })),
+          couponCode: selectedCoupon ? couponCode : undefined,
+          pointsToUse: pointsToUse > 0 ? pointsToUse : undefined,
+          shippingAddress: {
+            recipient: selectedAddr.recipient,
+            phone: selectedAddr.phone,
+            zipcode: selectedAddr.zipcode,
+            address1: selectedAddr.address1,
+            address2: selectedAddr.address2,
+            deliveryMemo: memo || selectedAddr.deliveryMemo,
+          },
         },
-      });
-      clear();
+        idemKeyRef.current,
+      );
+      // 주문된 라인만 장바구니에서 제거 — 품절로 제외된(missing) 라인은 남겨둔다.
+      rows.forEach((r) => remove(r.id, r.option));
+      idemKeyRef.current = null; // 성공 → 다음 주문은 새 키
       setDone(order);
     } catch (e) {
       setErr(e.response?.data?.message || '결제에 실패했습니다.');
@@ -166,7 +204,7 @@ export default function Checkout() {
         <p className="mt-3 text-[14px] text-mute">주문번호 {done.orderNumber}</p>
         <p className="mt-1 text-[14px]">결제금액 <b>{won(done.amounts.grandTotal)}원</b></p>
         {done.pointsEarned > 0 && (
-          <p className="mt-1 text-[13px] text-mute">{won(done.pointsEarned)}P 적립되었습니다</p>
+          <p className="mt-1 text-[13px] text-mute">배송 완료 시 {won(done.pointsEarned)}P 적립 예정</p>
         )}
         <div className="mt-8 flex gap-2.5">
           <Link to="/mypage" className="border border-ink px-6 py-3 text-sm font-medium hover:bg-tint">
@@ -180,11 +218,13 @@ export default function Checkout() {
     );
   }
 
-  // 빈 장바구니로 직접 들어온 경우
+  // 빈 장바구니로 직접 들어온 경우 (또는 담긴 상품이 전부 품절/판매중지)
   if (rows.length === 0) {
     return (
       <div className="mx-auto max-w-[900px] px-5 py-24 text-center">
-        <p className="text-[14px] text-mute">주문할 상품이 없습니다.</p>
+        <p className="text-[14px] text-mute">
+          {missing.length > 0 ? '장바구니의 상품이 모두 품절되거나 판매가 중지되었습니다.' : '주문할 상품이 없습니다.'}
+        </p>
         <Link to="/" className="mt-6 inline-block border border-ink px-8 py-3 text-sm hover:bg-tint">홈으로</Link>
       </div>
     );
@@ -244,6 +284,11 @@ export default function Checkout() {
           {/* 주문 상품 */}
           <section>
             <h2 className="mb-3 text-sm font-bold">주문 상품 {rows.length}건</h2>
+            {missing.length > 0 && (
+              <p className="mb-3 rounded bg-amber-50 px-3 py-2 text-[12px] text-amber-700">
+                품절되거나 판매가 중지된 상품 {missing.length}건은 이 주문에서 제외됩니다. (장바구니에는 그대로 남겨둡니다)
+              </p>
+            )}
             <ul className="divide-y divide-line border-y border-line">
               {rows.map((r) => (
                 <li key={`${r.id}-${r.option || ''}`} className="flex items-center gap-3 py-3">
@@ -354,7 +399,7 @@ export default function Checkout() {
               <span className="text-xl font-bold">{won(grandTotal)}원</span>
             </div>
             {earnPreview > 0 && (
-              <p className="mt-1 text-right text-[12px] text-mute">결제 시 {won(earnPreview)}P 적립 예정</p>
+              <p className="mt-1 text-right text-[12px] text-mute">배송 완료 시 {won(earnPreview)}P 적립 예정</p>
             )}
 
             {err && <p className="mt-3 rounded bg-red-50 px-3 py-2 text-[13px] text-sale">{err}</p>}

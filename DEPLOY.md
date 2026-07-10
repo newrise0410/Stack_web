@@ -47,8 +47,9 @@ git push -u origin main
 
 ```bash
 cd /Users/sw/project/stacknstak/server
-MONGODB_URI="<위 Atlas 문자열>" npm run seed
-# → Seeded 14 products.
+MONGODB_URI="<위 Atlas 문자열>" SEED_CONFIRM=yes npm run seed
+# → Seeded 14 products (removed 0 stale).
+# (원격 DB 안전장치: SEED_CONFIRM=yes 없으면 실행 거부. slug 기준 upsert라 카탈로그가 비는 구간 없음)
 ```
 
 > 관리자 계정은 배포 후 회원가입 → Atlas(Compass 또는 Atlas UI)에서 해당 유저의 `role`을 `admin`으로 변경.
