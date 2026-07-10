@@ -69,6 +69,15 @@ MONGODB_URI="<Atlas 문자열>" CLOUDINARY_URL="<cloudinary URL>" \
 > 마이그레이션을 건너뛰어도 됩니다 — 로컬 `/products/...` 이미지는 프론트에서 그대로 렌더되고,
 > 렌더 최적화 헬퍼(`cldUrl`)가 로컬 경로는 변환 없이 통과시킵니다.
 
+**고아 자산 청소(선택, 운영 유지보수):** 어떤 상품도 참조하지 않는 Cloudinary 자산(저장 안 한 업로드 등)을 정리한다.
+기본은 dry-run(보기만), `SWEEP_CONFIRM=yes`를 줘야 실제 삭제.
+
+```bash
+cd /Users/sw/project/stacknstak/server
+MONGODB_URI="<Atlas 문자열>" CLOUDINARY_URL="<cloudinary URL>" npm run sweep:images            # dry-run
+MONGODB_URI="<Atlas 문자열>" CLOUDINARY_URL="<cloudinary URL>" SWEEP_CONFIRM=yes npm run sweep:images  # 실제 삭제
+```
+
 ---
 
 ## 2. 백엔드 배포 (Render)

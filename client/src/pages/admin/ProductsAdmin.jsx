@@ -4,7 +4,7 @@ import api from '../../lib/api.js';
 import { won } from '../../lib/format.js';
 import { fetchAdminProducts, patchProduct } from '../../lib/admin.js';
 import { useToast } from '../../lib/toast.jsx';
-import { uploadProductImage } from '../../lib/cloudinary.js';
+import { uploadProductImage, cldUrl } from '../../lib/cloudinary.js';
 import Stars from '../../components/Stars.jsx';
 import Pagination from '../../components/admin/Pagination.jsx';
 
@@ -154,7 +154,7 @@ function ProductForm({ initial, onDone, onCancel }) {
             {f.images.map((img, i) => (
               <div key={img.id} className="flex items-center gap-2">
                 <div className="h-12 w-12 shrink-0 overflow-hidden border border-line bg-tint">
-                  {img.url && <img src={img.url} alt="" className="h-full w-full object-cover" />}
+                  {img.url && <img src={cldUrl(img.url, { w: 96, square: true })} alt="" className="h-full w-full object-cover" />}
                 </div>
                 <input className={inputCls} value={img.url} onChange={(e) => setImage(i, e.target.value)} placeholder="https://..." />
                 <label className={`shrink-0 border border-line px-2 py-2 text-[12px] ${uploadingIds.has(img.id) ? 'cursor-default opacity-50' : 'cursor-pointer hover:bg-tint'}`}>
@@ -352,7 +352,7 @@ export default function ProductsAdmin() {
                 {data.items.map((p) => (
                   <tr key={p._id} className="border-b border-line">
                     <td className="py-2 pr-3">
-                      <img src={p.images?.[0]} alt="" className="h-12 w-12 rounded bg-tint object-cover" />
+                      <img src={cldUrl(p.images?.[0], { w: 96, square: true })} alt="" className="h-12 w-12 rounded bg-tint object-cover" />
                     </td>
                     <td className="py-2 pr-3">
                       <p className="font-medium">{p.name}</p>

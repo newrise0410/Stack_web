@@ -11,7 +11,8 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "seed": "node src/seed/seedProducts.js",
-    "migrate:images": "node src/scripts/migrateImagesToCloudinary.mjs"
+    "migrate:images": "node src/scripts/migrateImagesToCloudinary.mjs",
+    "sweep:images": "node src/scripts/sweepOrphanCloudinary.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

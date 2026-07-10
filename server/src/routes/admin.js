@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { rateLimit } from '../middleware/rateLimit.js';
 import * as adminController from '../controllers/adminController.js';
 import * as emailController from '../controllers/emailController.js';
 import * as couponController from '../controllers/couponController.js';
@@ -38,6 +39,13 @@ router.post('/members/:id/points', requireAuth, requireAdmin, asyncHandler(point
 
 router.get('/members/:id', requireAuth, requireAdmin, asyncHandler(adminController.getMember));
 
-router.post('/uploads', requireAuth, requireAdmin, uploadSingle, asyncHandler(uploadController.uploadImage));
+// 업로드 남용 방지: 관리자당 분당 20회(탈취 토큰의 free-tier 소진·메모리 압박 차단). requireAuth 뒤라 user id로 키.
+const uploadLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 20,
+  key: (req) => String(req.user?._id || req.ip),
+  message: '이미지 업로드가 너무 잦습니다. 잠시 후 다시 시도해주세요.',
+});
+router.post('/uploads', requireAuth, requireAdmin, uploadLimiter, uploadSingle, asyncHandler(uploadController.uploadImage));
 
 export default router;

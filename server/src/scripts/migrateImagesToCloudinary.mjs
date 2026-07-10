@@ -26,7 +26,9 @@ await mongoose.connect(uri);
 const products = await Product.find({});
 let changedProducts = 0;
 let uploaded = 0;
-let failed = 0;
+let skippedMissing = 0; // 로컬 파일 없음
+let uploadFailed = 0; // Cloudinary 업로드 예외
+let saveFailed = 0; // DB 저장 예외
 
 for (const p of products) {
   let dirty = false;
@@ -36,7 +38,7 @@ for (const p of products) {
     const localPath = path.join(PUBLIC_DIR, url);
     if (!fs.existsSync(localPath)) {
       console.warn('파일 없음, 건너뜀:', url);
-      failed += 1; next.push(url); continue;
+      skippedMissing += 1; next.push(url); continue;
     }
     const base = path.basename(url, path.extname(url)); // 확장자 제거 → 멱등 public_id
     try {
@@ -46,11 +48,18 @@ for (const p of products) {
       next.push(r.secure_url); uploaded += 1; dirty = true;
     } catch (e) {
       console.error('업로드 실패:', url, e.message);
-      failed += 1; next.push(url);
+      uploadFailed += 1; next.push(url);
     }
   }
-  if (dirty) { p.images = next; await p.save(); changedProducts += 1; }
+  if (dirty) {
+    try {
+      p.images = next; await p.save(); changedProducts += 1;
+    } catch (e) {
+      console.error('저장 실패:', p.slug, e.message);
+      saveFailed += 1;
+    }
+  }
 }
 
-console.log(`완료 — 변경 상품 ${changedProducts} / 업로드 ${uploaded} / 실패 ${failed}`);
+console.log(`완료 — 변경상품 ${changedProducts} / 업로드 ${uploaded} / 파일없음 ${skippedMissing} / 업로드실패 ${uploadFailed} / 저장실패 ${saveFailed}`);
 await mongoose.disconnect();

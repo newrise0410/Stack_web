@@ -1,16 +1,25 @@
 import { Link } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
 import { won, discountRate } from '../lib/format.js';
 import Stars from './Stars.jsx';
 import WishButton from './WishButton.jsx';
-import { cldUrl } from '../lib/cloudinary.js';
+import { cldUrl, cldSrcSet, cldLqip } from '../lib/cloudinary.js';
 
 // 29CM-style card: large image, then small brand / name / discount+price.
 export default function ProductCard({ product, rank }) {
   const rate = discountRate(product.price, product.compareAt);
+  const imgRef = useRef(null);
+  const [loaded, setLoaded] = useState(false);
+  // 캐시된 이미지는 onLoad가 붙기 전에 로드가 끝날 수 있어 complete로 초기 상태를 보정한다.
+  useEffect(() => { if (imgRef.current?.complete) setLoaded(true); }, []);
+  const lqip = cldLqip(product.image);
 
   return (
     <Link to={`/objects/${product.id}`} className="group block">
-      <div className="relative overflow-hidden bg-tint">
+      <div
+        className="relative overflow-hidden bg-tint bg-cover bg-center"
+        style={lqip && !loaded ? { backgroundImage: `url(${lqip})` } : undefined}
+      >
         {rank != null && (
           <span className="absolute left-0 top-0 z-10 bg-ink px-2.5 py-1 text-sm font-semibold text-paper">
             {rank}
@@ -22,10 +31,15 @@ export default function ProductCard({ product, rank }) {
           </span>
         )}
         <img
+          ref={imgRef}
           src={cldUrl(product.image, { w: 600 })}
+          srcSet={cldSrcSet(product.image, [300, 450, 600, 900])}
+          sizes="(min-width: 768px) 25vw, 50vw"
           alt={product.ko}
           loading="lazy"
-          className="aspect-[4/5] w-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04]"
+          onLoad={() => setLoaded(true)}
+          onError={() => setLoaded(true)}
+          className={`aspect-[4/5] w-full object-cover transition-[transform,opacity] duration-700 ease-out group-hover:scale-[1.04] ${loaded ? 'opacity-100' : 'opacity-0'}`}
         />
         <WishButton
           slug={product.id}

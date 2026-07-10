@@ -21,6 +21,7 @@ export async function uploadImage(req, res) {
           resource_type: 'image',
           // 서버측(실제 바이트 기준) 형식 게이트 — 클라 mimetype 검사는 defense-in-depth로 강등
           allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'gif'],
+          timeout: 60_000, // 업로드 지연 시 핸들러 무기한 대기 + 5MB 버퍼 상주 방지
         },
         (err, out) => (err ? reject(err) : resolve(out)),
       );

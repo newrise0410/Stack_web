@@ -116,7 +116,7 @@ export default function Product() {
                     i === mainImg ? 'ring-ink' : 'ring-line hover:ring-mute'
                   }`}
                 >
-                  <img src={cldUrl(src, { w: 160 })} alt="" className="h-full w-full object-cover" />
+                  <img src={cldUrl(src, { w: 160, square: true })} alt="" className="h-full w-full object-cover" />
                 </button>
               ))}
             </div>
