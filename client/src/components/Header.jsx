@@ -25,17 +25,26 @@ export default function Header() {
   }, [location.pathname, location.search, location.hash]);
 
   // 스크롤하면 상단 유틸행을 접어 헤더를 축소한다. 축소 높이는 --header-h(css)와 일치.
+  // 히스테리시스: 접힘(>90)·펼침(<30) 임계값을 벌려 데드존(60px)이 유틸행 높이(34px)보다
+  // 크게 한다. 접힐 때 위쪽 높이가 줄며 브라우저가 스크롤을 보정해도 임계값을 다시 넘지
+  // 않으므로, 애매한 위치에서 접힘/펼침이 반복되는 떨림(지진)을 막는다.
   useEffect(() => {
     let ticking = false;
+    const update = () => {
+      ticking = false;
+      const y = window.scrollY;
+      setScrolled((prev) => {
+        if (!prev && y > 90) return true;
+        if (prev && y < 30) return false;
+        return prev;
+      });
+    };
     const onScroll = () => {
       if (ticking) return;
       ticking = true;
-      window.requestAnimationFrame(() => {
-        setScrolled(window.scrollY > 24);
-        ticking = false;
-      });
+      window.requestAnimationFrame(update);
     };
-    onScroll();
+    update();
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
