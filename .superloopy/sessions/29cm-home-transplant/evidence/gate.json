@@ -1,0 +1,27 @@
+{
+  "status": "passed",
+  "createdAt": "2026-07-13T07:12:30.624Z",
+  "artifacts": [
+    ".superloopy/sessions/29cm-home-transplant/evidence/G001-C001.txt",
+    ".superloopy/sessions/29cm-home-transplant/evidence/G001-C002.txt"
+  ],
+  "summary": {
+    "goals": {
+      "total": 1,
+      "pending": 0,
+      "in_progress": 0,
+      "complete": 1,
+      "failed": 0,
+      "blocked": 0
+    },
+    "criteria": {
+      "total": 2,
+      "pass": 2,
+      "pending": 0,
+      "fail": 0,
+      "blocked": 0
+    },
+    "aggregateComplete": true
+  },
+  "notes": "29cm 홈 구조 이식·검증 완료"
+}

@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "mode": "light",
+  "createdAt": "2026-07-13T07:11:44.304Z",
+  "updatedAt": "2026-07-13T07:12:30.630Z",
+  "briefPath": ".superloopy/sessions/29cm-home-transplant/brief.md",
+  "evidencePath": ".superloopy/sessions/29cm-home-transplant/evidence",
+  "goalsPath": ".superloopy/sessions/29cm-home-transplant/goals.json",
+  "ledgerPath": ".superloopy/sessions/29cm-home-transplant/ledger.jsonl",
+  "goals": [
+    {
+      "id": "G001",
+      "title": "29cm 홈 구조를 Stack N' Stak Home에 이식 (상단+주요 섹션)",
+      "objective": "29cm 홈 구조를 Stack N' Stak Home에 이식 (상단+주요 섹션)",
+      "status": "complete",
+      "attempt": 1,
+      "createdAt": "2026-07-13T07:11:44.304Z",
+      "updatedAt": "2026-07-13T07:12:30.630Z",
+      "criteria": [
+        {
+          "id": "C001",
+          "kind": "happy",
+          "scenario": "Happy path works from the real user-facing surface.",
+          "essential": true,
+          "status": "pass",
+          "artifact": ".superloopy/sessions/29cm-home-transplant/evidence/G001-C001.txt",
+          "capturedAt": "2026-07-13T07:12:20.562Z",
+          "notes": "홈 렌더+빌드 통과"
+        },
+        {
+          "id": "C002",
+          "kind": "risk",
+          "scenario": "Riskiest edge or failure path is handled.",
+          "essential": true,
+          "status": "pass",
+          "artifact": ".superloopy/sessions/29cm-home-transplant/evidence/G001-C002.txt",
+          "capturedAt": "2026-07-13T07:12:20.597Z",
+          "notes": "반응형+범위 준수"
+        }
+      ],
+      "startedAt": "2026-07-13T07:11:44.307Z",
+      "completedAt": "2026-07-13T07:12:30.630Z",
+      "evidence": "criteria passed"
+    }
+  ],
+  "aggregateCompletion": {
+    "status": "complete",
+    "completedAt": "2026-07-13T07:12:30.630Z",
+    "evidence": "criteria passed",
+    "qualityGate": {
+      "status": "passed",
+      "artifacts": [
+        {
+          "absolutePath": "/Users/sw/project/stacknstak/.superloopy/sessions/29cm-home-transplant/evidence/G001-C001.txt",
+          "relativePath": ".superloopy/sessions/29cm-home-transplant/evidence/G001-C001.txt",
+          "size": 142
+        },
+        {
+          "absolutePath": "/Users/sw/project/stacknstak/.superloopy/sessions/29cm-home-transplant/evidence/G001-C002.txt",
+          "relativePath": ".superloopy/sessions/29cm-home-transplant/evidence/G001-C002.txt",
+          "size": 1906
+        }
+      ]
+    }
+  },
+  "sessionId": "29cm-home-transplant"
+}

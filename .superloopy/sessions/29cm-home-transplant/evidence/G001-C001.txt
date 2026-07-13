@@ -1,0 +1,2 @@
+vite build: 148 modules transformed, 0 errors
+Home renders 3열 히어로+에디토리얼 모듈, 콘솔 0 에러 (desktop 1280 / mobile 390)

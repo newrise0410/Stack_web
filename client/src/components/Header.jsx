@@ -16,6 +16,7 @@ export default function Header() {
   const { count } = useCart();
   const { user, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const location = useLocation();
 
   // 라우트 이동 시 모바일 메뉴 닫기 (쿼리스트링만 바뀌는 이동도 포함)
@@ -23,10 +24,30 @@ export default function Header() {
     setMenuOpen(false);
   }, [location.pathname, location.search, location.hash]);
 
+  // 스크롤하면 상단 유틸행을 접어 헤더를 축소한다. 축소 높이는 --header-h(css)와 일치.
+  useEffect(() => {
+    let ticking = false;
+    const onScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      window.requestAnimationFrame(() => {
+        setScrolled(window.scrollY > 24);
+        ticking = false;
+      });
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-paper/95 backdrop-blur-sm">
-      {/* utility row */}
-      <div className="border-b border-line">
+      {/* utility row — 스크롤 시 접힘 */}
+      <div
+        className={`overflow-hidden border-line transition-all duration-300 ${
+          scrolled ? 'max-h-0 border-b-0' : 'max-h-12 border-b'
+        }`}
+      >
         <div className="mx-auto flex max-w-[1280px] items-center justify-end gap-5 px-5 py-2 text-[11px] text-mute">
           {user ? (
             <>

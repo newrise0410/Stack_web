@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../lib/auth.jsx';
 import { fetchReviews, createReview, deleteReview } from '../lib/reviews.js';
 import Stars from './Stars.jsx';
+import RatingSummary from './RatingSummary.jsx';
 
 // 별점 입력 (1~5 클릭)
 function StarPicker({ value, onChange }) {
@@ -31,6 +32,7 @@ export default function ReviewSection({ slug, ratingAvg = 0, ratingCount = 0, on
   const { user } = useAuth();
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
+  const [dist, setDist] = useState({});
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [rating, setRating] = useState(0);
@@ -53,8 +55,23 @@ export default function ReviewSection({ slug, ratingAvg = 0, ratingCount = 0, on
       .finally(() => setBusyFlag(false));
   };
 
+  // 별점 분포 집계 — 백엔드 집계 엔드포인트가 없어 전체 리뷰를 한 번 받아 계산.
+  // (스터디 스코프: 리뷰 수가 적어 limit 200이면 전량 확보)
+  const loadDist = () => {
+    fetchReviews(slug, { page: 1, limit: 200 })
+      .then((d) => {
+        const counts = {};
+        d.items.forEach((r) => {
+          counts[r.rating] = (counts[r.rating] || 0) + 1;
+        });
+        setDist(counts);
+      })
+      .catch(() => setDist({}));
+  };
+
   useEffect(() => {
     loadPage(1);
+    loadDist();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
@@ -75,6 +92,7 @@ export default function ReviewSection({ slug, ratingAvg = 0, ratingCount = 0, on
       setRating(0);
       setContent('');
       loadPage(1);
+      loadDist();
       onChanged?.();
     } catch (e2) {
       setErr(e2.response?.data?.message || '리뷰 등록에 실패했습니다.');
@@ -88,6 +106,7 @@ export default function ReviewSection({ slug, ratingAvg = 0, ratingCount = 0, on
     try {
       await deleteReview(id);
       loadPage(1);
+      loadDist();
       onChanged?.();
     } catch {
       window.alert('리뷰 삭제에 실패했습니다.');
@@ -96,17 +115,16 @@ export default function ReviewSection({ slug, ratingAvg = 0, ratingCount = 0, on
 
   return (
     <section className="mx-auto max-w-[900px] px-5 pt-16">
-      <div className="flex items-baseline justify-between border-b border-line pb-4">
-        <h2 className="text-xl font-bold tracking-tight">
-          리뷰 {ratingCount > 0 && <span className="text-mute">{ratingCount}</span>}
-        </h2>
-        {ratingCount > 0 && (
-          <div className="flex items-center gap-2 text-sm">
-            <Stars value={ratingAvg} />
-            <span className="font-semibold">{ratingAvg.toFixed(1)}</span>
-          </div>
-        )}
-      </div>
+      <h2 className="border-b border-line pb-4 text-xl font-bold tracking-tight">
+        리뷰 {ratingCount > 0 && <span className="text-mute">{ratingCount}</span>}
+      </h2>
+
+      {/* 별점 요약 */}
+      {ratingCount > 0 && (
+        <div className="mt-6">
+          <RatingSummary avg={ratingAvg} count={ratingCount} dist={dist} />
+        </div>
+      )}
 
       {/* 작성 폼 */}
       {user ? (

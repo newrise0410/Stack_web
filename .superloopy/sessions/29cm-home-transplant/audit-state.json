@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "sessionId": "29cm-home-transplant",
+  "auditsAccepted": 0,
+  "updatedAt": "2026-07-13T07:12:30.629Z",
+  "criteria": [
+    {
+      "criterion": "G001/C001",
+      "scenario": "Happy path works from the real user-facing surface.",
+      "inputHash": "23484871caa8638403edb4442a29c4a1d2e9a402d4b69d771d48435530af9636",
+      "sourceHash": "a038338ab9eb66fdcf1d066c059d66ed7b03f0b1b5b21dbe346913ace82a021c",
+      "verdict": null,
+      "failCount": 0,
+      "auditedAt": "2026-07-13T07:12:30.629Z",
+      "command": null,
+      "rerunStatus": "manual-recheck",
+      "rerunArtifact": ".superloopy/sessions/29cm-home-transplant/evidence/G001-C001.txt",
+      "rerunArtifactHash": "a038338ab9eb66fdcf1d066c059d66ed7b03f0b1b5b21dbe346913ace82a021c",
+      "floor": "pass",
+      "verdictArtifact": null,
+      "verdictHash": null
+    },
+    {
+      "criterion": "G001/C002",
+      "scenario": "Riskiest edge or failure path is handled.",
+      "inputHash": "d1a21db705b91aac8ea4b478a003b251f63f78fe49261aeb96afdeb62a67ca2d",
+      "sourceHash": "12e5b44179c434874a2fc2800618341a7caadfa39db10828eae86abc48b8d266",
+      "verdict": null,
+      "failCount": 0,
+      "auditedAt": "2026-07-13T07:12:30.629Z",
+      "command": null,
+      "rerunStatus": "manual-recheck",
+      "rerunArtifact": ".superloopy/sessions/29cm-home-transplant/evidence/G001-C002.txt",
+      "rerunArtifactHash": "12e5b44179c434874a2fc2800618341a7caadfa39db10828eae86abc48b8d266",
+      "floor": "pass",
+      "verdictArtifact": null,
+      "verdictHash": null
+    }
+  ]
+}

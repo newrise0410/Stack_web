@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import ProductCard from '../components/ProductCard.jsx';
+import HeroCampaign from '../components/home/HeroCampaign.jsx';
+import EditorialModule from '../components/home/EditorialModule.jsx';
 import { fetchProducts } from '../lib/products.js';
 import { Loading, LoadError } from '../components/Loading.jsx';
 import useDocumentTitle from '../lib/useDocumentTitle.js';
@@ -71,46 +73,77 @@ export default function Home() {
   const byType = (t) => products.filter((p) => p.type === t);
   const hero = byId('ola-lamp') || products[0];
   const feature = byId('waveglow-lamp') || products[1] || hero;
-  const newDrop = products.filter((p) => p.badge === 'NEW').slice(0, 4);
   const best = products
     .filter((p) => p.badge === 'BEST')
     .concat(products.filter((p) => p.badge !== 'BEST'));
 
+  const table0 = byType('Table')[0] || hero;
+  const pendant0 = byType('Pendant')[0] || hero;
+  const moon0 = byType('MoonWall')[0] || hero;
+
+  // 히어로 캠페인 타일 — 3열 롤링 캐러셀용. 이미지/링크는 우리 카탈로그 기반
+  const heroTiles = [
+    {
+      eyebrow: 'Summer Glow',
+      title: '여름밤의 낮은 빛',
+      subtitle: '테이블 위에 놓는 3D 프린팅 조명',
+      cta: '테이블 램프',
+      to: '/category/Table',
+      image: table0.image,
+    },
+    {
+      eyebrow: 'Spotlight',
+      title: feature.ko,
+      subtitle: feature.blurb || '이번 주 주목한 램프',
+      cta: '제품 보기',
+      to: `/objects/${feature.id}`,
+      image: feature.image,
+    },
+    {
+      eyebrow: 'Made to order',
+      title: '주문 후 한 층씩',
+      subtitle: '재고가 아닌 당신의 주문으로 시작됩니다',
+      cta: '전체 보기',
+      to: '/category/all',
+      image: moon0.image,
+    },
+    {
+      eyebrow: 'Weekly Best',
+      title: best[0]?.ko || '이번 주 랭킹',
+      subtitle: '가장 많이 담긴 램프',
+      cta: '랭킹 보기',
+      to: best[0] ? `/objects/${best[0].id}` : '/category/all',
+      image: (best[0] || feature).image,
+    },
+    {
+      eyebrow: 'Pendant',
+      title: '천장에서 내려오는 빛',
+      subtitle: '공간의 높이를 바꾸는 펜던트',
+      cta: '펜던트 램프',
+      to: '/category/Pendant',
+      image: pendant0.image,
+    },
+  ];
+
+  // 3열 에디토리얼 모듈 — 타입별 이미지 카드 + 상품 리스트
+  const editorialColumns = [
+    { title: '테이블 위의 빛', subtitle: 'Table Lamps', to: '/category/Table', image: table0.image, products: byType('Table').slice(0, 3) },
+    { title: '천장에서 내려오는', subtitle: 'Pendant', to: '/category/Pendant', image: pendant0.image, products: byType('Pendant').slice(0, 3) },
+    { title: '벽에 걸린 달', subtitle: 'Moon & Wall', to: '/category/MoonWall', image: moon0.image, products: byType('MoonWall').slice(0, 3) },
+  ].filter((c) => c.products.length > 0);
+
   return (
     <>
-      {/* ── Hero banner ──────────────────────────────────── */}
-      <section id="hero" className="relative">
-        <Link to={`/objects/${hero.id}`} className="group block">
-          <div className="relative h-[62vh] min-h-[420px] w-full overflow-hidden bg-tint">
-            <img
-              src={cldUrl(hero.image, { w: 1600 })}
-              alt={hero.ko}
-              fetchpriority="high"
-              className="h-full w-full object-cover transition-transform duration-[1200ms] ease-out group-hover:scale-105"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent" />
-            <div className="absolute bottom-0 left-0 p-6 text-paper sm:p-10">
-              <p className="text-[12px] font-medium tracking-[0.15em] opacity-90">
-                2607 EXCLUSIVE · LAMP COLLECTION
-              </p>
-              <h1 className="mt-2 max-w-xl text-3xl font-bold leading-tight tracking-tight sm:text-4xl">
-                한 층씩 쌓아 올린 빛
-              </h1>
-              <p className="mt-2 max-w-md text-sm text-paper/85">
-                테이블 · 펜던트 · 문 램프 — 3D 프린팅 조명 컬렉션
-              </p>
-            </div>
-            <span className="absolute bottom-6 right-6 text-[12px] font-medium text-paper/80">
-              01 / {String(products.length).padStart(2, '0')}
-            </span>
-          </div>
-        </Link>
-      </section>
+      {/* ── Hero: 3열 캠페인 (29cm 구조 이식) ─────────────── */}
+      <HeroCampaign tiles={heroTiles} />
 
-      {/* ── New ──────────────────────────────────────────── */}
-      <section className="mx-auto max-w-[1280px] px-5 pt-16">
-        <SectionHead title="이번 주 신상" tagline="이번 주 새로 입고된 램프" />
-        <Grid items={newDrop} />
+      {/* ── 에디토리얼 모듈: 3열 이미지 카드 + 상품 리스트 ── */}
+      <EditorialModule columns={editorialColumns} />
+
+      {/* ── Best (ranking) ───────────────────────────────── */}
+      <section id="best" className="mx-auto max-w-[1280px] px-5 pt-20">
+        <SectionHead title="지금 가장 인기 있는" tagline="주간 판매 랭킹" />
+        <Grid items={best.slice(0, 4)} ranked />
       </section>
 
       {/* ── Editorial feature (PT-style) ─────────────────── */}
@@ -140,12 +173,6 @@ export default function Home() {
             </span>
           </div>
         </Link>
-      </section>
-
-      {/* ── Best (ranking) ───────────────────────────────── */}
-      <section id="best" className="mx-auto max-w-[1280px] px-5 pt-20">
-        <SectionHead title="지금 가장 인기 있는" tagline="주간 판매 랭킹" />
-        <Grid items={best.slice(0, 4)} ranked />
       </section>
 
       {/* ── Type sections ────────────────────────────────── */}

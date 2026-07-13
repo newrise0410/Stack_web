@@ -14,6 +14,17 @@
   --font-sans: "Pretendard Variable", "Pretendard", system-ui, sans-serif;
 }
 
+/* 스크롤 시 축소된 헤더 높이 — 스티키 자식(PDP 탭·구매패널)과 앵커 오프셋의 단일 기준.
+   헤더가 스크롤로 유틸행을 접으면 이 값과 실제 높이가 일치한다. */
+:root {
+  --header-h: 105px;
+}
+@media (max-width: 767px) {
+  :root {
+    --header-h: 60px;
+  }
+}
+
 @layer base {
   body {
     background-color: var(--color-paper);
@@ -30,9 +41,9 @@
   img {
     -webkit-user-drag: none;
   }
-  /* sticky 헤더가 앵커 스크롤 대상 섹션을 가리지 않도록 */
+  /* sticky 헤더가 앵커 스크롤 대상 섹션을 가리지 않도록 (축소 헤더 기준 + 여유) */
   section[id] {
-    scroll-margin-top: 9rem;
+    scroll-margin-top: calc(var(--header-h) + 3rem);
   }
 }
 
