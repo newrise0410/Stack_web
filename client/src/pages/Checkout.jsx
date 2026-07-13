@@ -7,11 +7,27 @@ import { createOrder } from '../lib/orders.js';
 import { fetchAvailableCoupons, claimCoupon } from '../lib/coupon.js';
 import { fetchMyPoints } from '../lib/points.js';
 import { won } from '../lib/format.js';
+import { cldUrl } from '../lib/cloudinary.js';
 import { Loading, LoadError } from '../components/Loading.jsx';
 
 const FREE_SHIPPING = 50000;
 const SHIPPING_FEE = 3000;
 const EARN_RATE = 0.03;
+
+// 번호형 주문 단계 섹션 헤더 (01 배송 → 02 상품 → 03 할인).
+function Step({ n, title, children }) {
+  return (
+    <section>
+      <div className="mb-4 flex items-center gap-2.5">
+        <span className="grid h-6 w-6 place-items-center rounded-full bg-ink text-[12px] font-bold text-paper">
+          {n}
+        </span>
+        <h2 className="text-[15px] font-bold tracking-tight">{title}</h2>
+      </div>
+      {children}
+    </section>
+  );
+}
 
 export default function Checkout() {
   const { lines, remove } = useCart();
@@ -198,19 +214,36 @@ export default function Checkout() {
   // ── 주문 완료 화면 ──────────────────────────────
   if (done) {
     return (
-      <div className="mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center px-5 text-center">
-        <p className="text-[12px] font-medium tracking-[0.2em] text-mute">ORDER COMPLETE</p>
-        <h1 className="mt-4 text-2xl font-bold tracking-tight">주문이 완료되었습니다</h1>
-        <p className="mt-3 text-[14px] text-mute">주문번호 {done.orderNumber}</p>
-        <p className="mt-1 text-[14px]">결제금액 <b>{won(done.amounts.grandTotal)}원</b></p>
-        {done.pointsEarned > 0 && (
-          <p className="mt-1 text-[13px] text-mute">배송 완료 시 {won(done.pointsEarned)}P 적립 예정</p>
-        )}
-        <div className="mt-8 flex gap-2.5">
-          <Link to="/mypage" className="border border-ink px-6 py-3 text-sm font-medium hover:bg-tint">
+      <div className="mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center px-5 py-16 text-center">
+        <div className="grid h-14 w-14 place-items-center rounded-full bg-ink text-2xl leading-none text-paper">
+          ✓
+        </div>
+        <p className="mt-5 text-[12px] font-semibold uppercase tracking-[0.2em] text-faint">Order complete</p>
+        <h1 className="mt-2 text-2xl font-bold tracking-tight">주문이 완료되었습니다</h1>
+
+        <dl className="mt-6 w-full space-y-2.5 border-y border-line py-5 text-[13px]">
+          <div className="flex justify-between">
+            <dt className="text-mute">주문번호</dt>
+            <dd className="font-medium">{done.orderNumber}</dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-mute">결제금액</dt>
+            <dd className="font-bold">{won(done.amounts.grandTotal)}원</dd>
+          </div>
+          {done.pointsEarned > 0 && (
+            <div className="flex justify-between">
+              <dt className="text-mute">적립 예정</dt>
+              <dd>{won(done.pointsEarned)}P</dd>
+            </div>
+          )}
+        </dl>
+        <p className="mt-3 text-[12px] text-mute">주문하신 조명은 국내 스튜디오에서 한 층씩 제작됩니다.</p>
+
+        <div className="mt-7 flex w-full gap-2.5">
+          <Link to="/mypage" className="flex-1 border border-ink py-3.5 text-sm font-medium hover:bg-tint">
             주문내역 보기
           </Link>
-          <Link to="/" className="bg-ink px-6 py-3 text-sm font-medium text-paper hover:bg-ink/85">
+          <Link to="/" className="flex-1 bg-ink py-3.5 text-sm font-medium text-paper hover:bg-ink/85">
             쇼핑 계속하기
           </Link>
         </div>
@@ -221,93 +254,108 @@ export default function Checkout() {
   // 빈 장바구니로 직접 들어온 경우 (또는 담긴 상품이 전부 품절/판매중지)
   if (rows.length === 0) {
     return (
-      <div className="mx-auto max-w-[900px] px-5 py-24 text-center">
+      <div className="mx-auto flex min-h-[50vh] max-w-[900px] flex-col items-center justify-center px-5 py-24 text-center">
         <p className="text-[14px] text-mute">
           {missing.length > 0 ? '장바구니의 상품이 모두 품절되거나 판매가 중지되었습니다.' : '주문할 상품이 없습니다.'}
         </p>
-        <Link to="/" className="mt-6 inline-block border border-ink px-8 py-3 text-sm hover:bg-tint">홈으로</Link>
+        <Link to="/" className="mt-6 inline-block bg-ink px-8 py-3 text-sm font-medium text-paper hover:bg-ink/85">
+          쇼핑하러 가기
+        </Link>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-[900px] px-5 py-12">
-      <h1 className="text-2xl font-bold tracking-tight">주문 / 결제</h1>
+    <div className="mx-auto max-w-[980px] px-5 py-10">
+      <p className="text-[12px] font-semibold uppercase tracking-[0.2em] text-faint">Order</p>
+      <h1 className="mt-1 text-2xl font-bold tracking-tight">주문서</h1>
 
-      <div className="mt-8 grid gap-10 md:grid-cols-[1fr_320px]">
-        <div className="space-y-8">
-          {/* 배송지 */}
-          <section>
-            <h2 className="mb-3 text-sm font-bold">배송지</h2>
+      <div className="mt-8 grid gap-10 md:grid-cols-[1fr_340px]">
+        <div className="space-y-10">
+          {/* 01 배송 정보 */}
+          <Step n="01" title="배송 정보">
             {addresses.length === 0 ? (
-              <div className="border border-line p-5 text-[13px] text-mute">
+              <div className="border border-line bg-tint/60 p-5 text-[13px] text-mute">
                 등록된 배송지가 없습니다.{' '}
                 <Link to="/mypage" className="font-medium text-ink underline-offset-4 hover:underline">
                   마이페이지에서 배송지 추가
                 </Link>
               </div>
             ) : (
-              <ul className="space-y-2">
-                {addresses.map((a) => (
-                  <li key={a._id}>
-                    <label className="flex cursor-pointer gap-3 border border-line p-4 text-[13px] hover:bg-tint">
-                      <input
-                        type="radio"
-                        name="addr"
-                        className="mt-0.5 accent-ink"
-                        checked={String(a._id) === addrId}
-                        onChange={() => setAddrId(String(a._id))}
-                      />
-                      <div>
-                        <p className="font-medium text-ink">
-                          {a.recipient} {a.label && <span className="text-mute">· {a.label}</span>}
-                          {a.isDefault && <span className="ml-2 text-[11px] text-faint">기본</span>}
-                        </p>
-                        <p className="mt-0.5 text-mute">
-                          ({a.zipcode}) {a.address1} {a.address2}
-                        </p>
-                        <p className="text-mute">{a.phone}</p>
-                      </div>
-                    </label>
-                  </li>
-                ))}
+              <ul className="space-y-2.5">
+                {addresses.map((a) => {
+                  const active = String(a._id) === addrId;
+                  return (
+                    <li key={a._id}>
+                      <label
+                        className={`flex cursor-pointer gap-3 border p-4 text-[13px] transition ${
+                          active ? 'border-ink ring-1 ring-ink' : 'border-line hover:border-mute'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="addr"
+                          className="mt-0.5 accent-ink"
+                          checked={active}
+                          onChange={() => setAddrId(String(a._id))}
+                        />
+                        <div>
+                          <p className="font-medium text-ink">
+                            {a.recipient} {a.label && <span className="text-mute">· {a.label}</span>}
+                            {a.isDefault && (
+                              <span className="ml-2 rounded-full bg-tint px-2 py-0.5 text-[10px] text-mute">기본</span>
+                            )}
+                          </p>
+                          <p className="mt-1 text-mute">
+                            ({a.zipcode}) {a.address1} {a.address2}
+                          </p>
+                          <p className="text-mute">{a.phone}</p>
+                        </div>
+                      </label>
+                    </li>
+                  );
+                })}
               </ul>
             )}
             <input
-              className="mt-2 w-full border border-line px-4 py-3 text-sm focus:border-ink focus:outline-none"
+              className="mt-2.5 w-full border border-line px-4 py-3 text-sm focus:border-ink focus:outline-none"
               placeholder="배송 메모 (예: 문 앞에 놓아주세요)"
               value={memo}
               onChange={(e) => setMemo(e.target.value)}
             />
-          </section>
+          </Step>
 
-          {/* 주문 상품 */}
-          <section>
-            <h2 className="mb-3 text-sm font-bold">주문 상품 {rows.length}건</h2>
+          {/* 02 주문 상품 */}
+          <Step n="02" title={`주문 상품 ${rows.length}건`}>
             {missing.length > 0 && (
-              <p className="mb-3 rounded bg-amber-50 px-3 py-2 text-[12px] text-amber-700">
+              <p className="mb-3 border border-line bg-tint px-3.5 py-2.5 text-[12px] text-mute">
                 품절되거나 판매가 중지된 상품 {missing.length}건은 이 주문에서 제외됩니다. (장바구니에는 그대로 남겨둡니다)
               </p>
             )}
             <ul className="divide-y divide-line border-y border-line">
               {rows.map((r) => (
-                <li key={`${r.id}-${r.option || ''}`} className="flex items-center gap-3 py-3">
-                  <img src={r.product.image} alt="" className="h-16 w-16 bg-tint object-cover" />
-                  <div className="flex-1">
-                    <p className="text-[13px] font-medium">{r.product.name}</p>
-                    <p className="text-[12px] text-mute">
+                <li key={`${r.id}-${r.option || ''}`} className="flex items-center gap-3.5 py-3.5">
+                  <img
+                    src={cldUrl(r.product.image, { w: 140, square: true })}
+                    alt=""
+                    className="h-16 w-16 shrink-0 bg-tint object-cover"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[11px] text-mute">{r.product.brand}</p>
+                    <p className="truncate text-[13px] font-medium">{r.product.name}</p>
+                    <p className="mt-0.5 text-[12px] text-mute">
                       {r.option && `${r.option} · `}수량 {r.qty}
                     </p>
                   </div>
-                  <span className="text-[13px] font-semibold">{won(r.product.price * r.qty)}원</span>
+                  <span className="shrink-0 text-[13px] font-semibold">{won(r.product.price * r.qty)}원</span>
                 </li>
               ))}
             </ul>
-          </section>
+          </Step>
 
-          {/* 쿠폰 */}
-          <section>
-            <h2 className="mb-3 text-sm font-bold">쿠폰</h2>
+          {/* 03 할인 · 혜택 (쿠폰 + 적립금) */}
+          <Step n="03" title="할인 · 혜택">
+            <p className="mb-2 text-[13px] font-medium text-ink">쿠폰</p>
             <select
               value={couponCode}
               onChange={(e) => setCouponCode(e.target.value)}
@@ -333,11 +381,8 @@ export default function Checkout() {
               <button type="submit" className="border border-ink px-5 py-2.5 text-sm hover:bg-tint">등록</button>
             </form>
             {couponMsg && <p className="mt-1 text-[12px] text-mute">{couponMsg}</p>}
-          </section>
 
-          {/* 적립금 */}
-          <section>
-            <h2 className="mb-3 text-sm font-bold">적립금</h2>
+            <p className="mb-2 mt-7 text-[13px] font-medium text-ink">적립금</p>
             <div className="flex gap-2">
               <input
                 type="number"
@@ -365,11 +410,11 @@ export default function Checkout() {
             <p className="mt-1 text-[12px] text-mute">
               보유 {won(pointsBalance)}P · 이 주문 최대 {won(maxUsablePoints)}P 사용 가능
             </p>
-          </section>
+          </Step>
         </div>
 
         {/* 결제 요약 */}
-        <aside className="md:sticky md:top-36 md:self-start">
+        <aside className="md:sticky md:top-[calc(var(--header-h)+1.5rem)] md:self-start">
           <div className="border border-line p-6">
             <h2 className="text-sm font-bold">결제 금액</h2>
             <dl className="mt-4 space-y-2.5 text-[13px]">
@@ -402,7 +447,7 @@ export default function Checkout() {
               <p className="mt-1 text-right text-[12px] text-mute">배송 완료 시 {won(earnPreview)}P 적립 예정</p>
             )}
 
-            {err && <p className="mt-3 rounded bg-red-50 px-3 py-2 text-[13px] text-sale">{err}</p>}
+            {err && <p className="mt-3 border border-sale/30 bg-sale/5 px-3 py-2 text-[13px] text-sale">{err}</p>}
 
             <button
               onClick={onPay}

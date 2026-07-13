@@ -51,11 +51,12 @@ export default function Header() {
 
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-paper/95 backdrop-blur-sm">
-      {/* utility row — 스크롤 시 접힘 */}
+      {/* utility row — 스크롤 시 접힘.
+          높이 애니메이션(transition) 없이 즉시 토글한다: 임계값(90px)에서 유틸행은 이미
+          뷰포트 위로 스크롤돼 있어, 즉시 접으면 브라우저 스크롤 앵커링이 한 번에 매끄럽게
+          보정한다. 애니메이션을 두면 프레임마다 높이가 변하며 앵커링과 충돌해 떨림이 생긴다. */}
       <div
-        className={`overflow-hidden border-line transition-all duration-300 ${
-          scrolled ? 'max-h-0 border-b-0' : 'max-h-12 border-b'
-        }`}
+        className={`overflow-hidden border-line ${scrolled ? 'max-h-0 border-b-0' : 'max-h-12 border-b'}`}
       >
         <div className="mx-auto flex max-w-[1280px] items-center justify-end gap-5 px-5 py-2 text-[11px] text-mute">
           {user ? (
