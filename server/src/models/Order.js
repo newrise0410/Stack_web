@@ -56,7 +56,29 @@ const orderSchema = new Schema(
       enum: ['pending', 'paid', 'preparing', 'shipped', 'delivered', 'cancelled'],
       default: 'pending',
     },
-    paymentMethod: { type: String, default: 'mock' }, // 실 PG 미연동(스터디)
+    paymentMethod: { type: String, default: 'card' }, // 'card'(포트원) | 'points'(0원 주문) | 'mock'(레거시)
+    // 포트원 결제·환불 상태 (status enum은 불변 — 세부 상태는 여기서 관리)
+    payment: {
+      provider: { type: String, default: null }, // 'portone' | 'none'(0원) | null(레거시 mock)
+      pg: { type: String, default: '' }, // 포트원 응답 pg_provider 스냅샷
+      method: { type: String, default: '' }, // 'card' | 'points'
+      impUid: { type: String, default: null },
+      paidAt: { type: Date, default: null },
+      receiptUrl: { type: String, default: '' },
+      failReason: { type: String, default: '' },
+      prepareStatus: { type: String, enum: ['preparing', 'prepared', 'failed', null], default: null },
+      preparedAmount: { type: Number, default: null },
+      expiresAt: { type: Date, default: null }, // pending 만료(sweeper 기준)
+      refund: {
+        status: { type: String, enum: ['none', 'requested', 'processing', 'done', 'review'], default: 'none' },
+        reason: { type: String, default: '' },
+        requestedAt: { type: Date, default: null },
+        completedAt: { type: Date, default: null },
+        cancelAmount: { type: Number, default: 0 },
+      },
+    },
+    // 같은 멱등키 + 다른 본문 재사용 감지용(sha256 hex)
+    requestHash: { type: String, default: null },
     courier: { type: String, default: '' }, // 택배사 (배송중 전환 시)
     trackingNumber: { type: String, default: '' }, // 송장번호
   },
@@ -68,6 +90,13 @@ orderSchema.index(
   { user: 1, idempotencyKey: 1 },
   { unique: true, partialFilterExpression: { idempotencyKey: { $type: 'string' } } },
 );
+// 같은 결제(impUid)가 두 주문에 매핑되는 것을 차단 — 문자열일 때만(partial)
+orderSchema.index(
+  { 'payment.impUid': 1 },
+  { unique: true, partialFilterExpression: { 'payment.impUid': { $type: 'string' } } },
+);
+// sweeper 스캔용
+orderSchema.index({ status: 1, 'payment.expiresAt': 1 });
 
 orderSchema.set('toJSON', {
   virtuals: true,
@@ -76,6 +105,9 @@ orderSchema.set('toJSON', {
     return ret;
   },
 });
+
+// 매출로 집계되는 상태(결제 확정 이후). pending·cancelled 제외.
+export const SALES_STATES = ['paid', 'preparing', 'shipped', 'delivered'];
 
 const Order = mongoose.model('Order', orderSchema);
 
