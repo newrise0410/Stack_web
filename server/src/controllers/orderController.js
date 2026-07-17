@@ -222,8 +222,11 @@ export async function createOrder(req, res) {
           const winner = await Order.findOne({ user: req.user._id, idempotencyKey });
           if (winner) return respondExistingOrder(res, winner, requestHash);
         }
-        // 쿠폰 1인 1회 unique 위반 — 이미 사용한 쿠폰
+        // 쿠폰 1인 1회 unique 위반 — 다만 같은 멱등키 동시요청의 패자가 쿠폰 선점에서 먼저
+        // 걸릴 수 있으므로, 승자 주문이 있으면 400 대신 그 주문으로 멱등 수렴시킨다.
         if (e.code === 11000 && !e.keyPattern?.orderNumber) {
+          const winner = await Order.findOne({ user: req.user._id, idempotencyKey });
+          if (winner) return respondExistingOrder(res, winner, requestHash);
           return res.status(400).json({ message: '이미 사용한 쿠폰입니다.' });
         }
         if (e.code === 11000 && attempt < 3) continue; // orderNumber 충돌 → 재시도
