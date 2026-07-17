@@ -4,6 +4,9 @@ import { fetchMembers, setUserRole, setUserStatus } from '../../lib/admin.js';
 import { useToast } from '../../lib/toast.jsx';
 import Pagination from '../../components/admin/Pagination.jsx';
 
+// MemberDetail.jsx의 STATUS_LABEL과 동일하게 유지 — 목록↔상세가 같은 말을 하도록.
+const STATUS_LABEL = { active: '활성', suspended: '정지됨', withdrawn: '탈퇴' };
+
 export default function MembersAdmin() {
   const toast = useToast();
   const [params, setParams] = useSearchParams();
@@ -123,19 +126,26 @@ export default function MembersAdmin() {
                       <span className={u.role === 'admin' ? 'font-medium text-ink' : 'text-mute'}>{u.role}</span>
                     </td>
                     <td className="py-3 pr-3">
-                      <span className={u.status === 'suspended' ? 'text-sale' : 'text-mute'}>
-                        {u.status === 'suspended' ? '정지' : '활성'}
+                      <span className={u.status === 'active' ? 'text-mute' : 'text-sale'}>
+                        {STATUS_LABEL[u.status] || u.status}
                       </span>
                     </td>
                     <td className="py-3 pr-3 text-[12px] text-mute">{u.createdAt?.slice(0, 10)}</td>
                     <td className="py-3 pr-3">
+                      {/* 탈퇴 회원은 PII가 파기된 tombstone이라 역할·정지 변경 대상이 아니다. */}
                       <div className="flex gap-2 text-[12px]">
-                        <button className="text-ink hover:underline" onClick={(e) => toggleRole(u, e)}>
-                          {u.role === 'admin' ? '관리자 해제' : '관리자 지정'}
-                        </button>
-                        <button className="text-sale hover:underline" onClick={(e) => toggleStatus(u, e)}>
-                          {u.status === 'suspended' ? '정지 해제' : '정지'}
-                        </button>
+                        {u.status === 'withdrawn' ? (
+                          <span className="text-faint">—</span>
+                        ) : (
+                          <>
+                            <button className="text-ink hover:underline" onClick={(e) => toggleRole(u, e)}>
+                              {u.role === 'admin' ? '관리자 해제' : '관리자 지정'}
+                            </button>
+                            <button className="text-sale hover:underline" onClick={(e) => toggleStatus(u, e)}>
+                              {u.status === 'suspended' ? '정지 해제' : '정지'}
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>

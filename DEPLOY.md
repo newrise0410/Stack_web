@@ -52,7 +52,14 @@ MONGODB_URI="<위 Atlas 문자열>" SEED_CONFIRM=yes npm run seed
 # (원격 DB 안전장치: SEED_CONFIRM=yes 없으면 실행 거부. slug 기준 upsert라 카탈로그가 비는 구간 없음)
 ```
 
-> 관리자 계정은 배포 후 회원가입 → Atlas(Compass 또는 Atlas UI)에서 해당 유저의 `role`을 `admin`으로 변경.
+> 관리자 계정은 CLI로 생성·승격한다 (Atlas UI에서 손으로 role을 바꾸지 않아도 된다). 멱등이라 여러 번 실행해도 안전:
+> ```bash
+> cd server
+> MONGODB_URI="<Atlas 문자열>" ADMIN_EMAIL=you@ex.com ADMIN_PASSWORD='8자이상' \
+>   ADMIN_NAME=관리자 ADMIN_CONFIRM=yes npm run create:admin
+> # 계정이 없으면 admin 신규 생성, 있으면 role=admin·status=active 로 승격(+비번 재설정)
+> # 원격 DB엔 ADMIN_CONFIRM=yes 필수. URI·비밀번호는 로그에 출력되지 않는다.
+> ```
 
 ### 이미지 → Cloudinary 마이그레이션 (선택, seed 뒤에)
 
@@ -162,5 +169,5 @@ MONGODB_URI="<Atlas 문자열>" CLOUDINARY_URL="<cloudinary URL>" SWEEP_CONFIRM=
 ## 주의 (스터디 배포)
 
 - 소셜로그인은 **mock**(데모 계정)이라 실제 구글/카카오 인증이 아닙니다.
-- 결제/주문은 아직 미구현.
+- 결제는 **포트원(아임포트) V1** 연동 완료 — 위 포트원 설정 절차 참조. 이메일 알림만 목업(실발송 없음).
 - MakerWorld 이미지는 `client/public/`에 포함되어 함께 배포됩니다.

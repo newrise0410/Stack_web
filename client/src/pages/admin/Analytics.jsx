@@ -16,6 +16,9 @@ function BarChart({ series }) {
   const H = 220;
   const pad = 24;
   const bw = (W - pad * 2) / series.length;
+  // 라벨이 겹치지 않게 솎아 표시한다 — 막대 12개까지는 전부, 그 이상은 최대 ~12개만 찍히도록
+  // 간격을 벌린다. 예전엔 length<=12 이면 라벨을 통째로 숨겨서 기본값 30d에서 x축이 비었다.
+  const labelEvery = Math.ceil(series.length / 12);
   return (
     <div className="overflow-x-auto">
       <svg viewBox={`0 0 ${W} ${H}`} className="min-w-[560px]" role="img" aria-label="매출 추이">
@@ -23,12 +26,13 @@ function BarChart({ series }) {
           const h = Math.round(((H - pad * 2) * d.revenue) / max);
           const x = pad + i * bw;
           const y = H - pad - h;
+          const showLabel = i % labelEvery === 0;
           return (
             <g key={d.label}>
               <rect x={x + bw * 0.15} y={y} width={bw * 0.7} height={h} className="fill-ink">
                 <title>{`${d.label} · ${won(d.revenue)}원 · ${d.orders}건`}</title>
               </rect>
-              {series.length <= 12 && (
+              {showLabel && (
                 <text x={x + bw / 2} y={H - pad + 12} textAnchor="middle" className="fill-mute text-[9px]">
                   {d.label.slice(5)}
                 </text>

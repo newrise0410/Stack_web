@@ -9,6 +9,7 @@ const TYPE_LABEL = {
   reclaim: '취소 회수',
   refund: '취소 환급',
   admin_adjust: '관리자 조정',
+  withdraw: '탈퇴 소멸',
 };
 
 // GET /points/me?page=&limit= — 내 잔액 + 내역

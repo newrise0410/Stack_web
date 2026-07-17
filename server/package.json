@@ -11,6 +11,7 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "seed": "node src/seed/seedProducts.js",
+    "create:admin": "node src/scripts/createAdmin.mjs",
     "migrate:images": "node src/scripts/migrateImagesToCloudinary.mjs",
     "sweep:images": "node src/scripts/sweepOrphanCloudinary.mjs",
     "test": "vitest run",
