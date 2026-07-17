@@ -8,8 +8,11 @@ const STATUS_LABEL = {
 };
 
 // RFC4180 — 쉼표·따옴표·개행 포함 시 큰따옴표로 감싸고 내부 "는 ""로.
+// 수식 인젝션 방어: 고객 입력(수취인 등)이 =,+,-,@ 로 시작하면 엑셀이 수식으로
+// 해석하지 않도록 작은따옴표를 접두한다.
 function csvEscape(value) {
-  const s = String(value ?? '');
+  let s = String(value ?? '');
+  if (/^[=+\-@]/.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
