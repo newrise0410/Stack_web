@@ -34,7 +34,8 @@ export async function applyTransition(orderId, next, { courier = '', trackingNum
   }
 
   if (next === 'cancelled') {
-    const r = await cancelOrderSaga(order._id, { actor, reason: `${actor} 취소` });
+    const actorLabel = actor === 'admin' ? '관리자' : actor; // 저장·노출용 한글 라벨
+    const r = await cancelOrderSaga(order._id, { actor, reason: `${actorLabel} 취소` });
     if (['cancelled', 'already_cancelled'].includes(r.outcome)) {
       const populated = await Order.findById(order._id).populate('user', 'name email');
       return { ok: true, order: populated };
