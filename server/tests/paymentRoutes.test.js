@@ -91,8 +91,16 @@ describe('POST /payments/webhook', () => {
     expect(res.status).toBe(200);
     expect(portone.getPayment).not.toHaveBeenCalled();
   });
+});
 
-  // TODO: vitest error capturing issue - this test needs investigation
-  // The webhook correctly returns 500 for unknown errors, but vitest captures
-  // the PortoneUnknownError during test setup. Implement once vitest issue resolved.
+// 별도 describe: 위 블록의 beforeEach(mockReset)와 이 테스트의 mockImplementation(rejected promise)이
+// 같은 스코프에 있으면 vitest/tinyspy 훅 경계에서 결과 불명 promise가 유령 미처리로 잡혀 간헐적으로
+// 실패한다(테스트 자체 로직은 정상). 리셋을 테스트 본문 안으로 옮겨 훅 경계를 피한다.
+describe('POST /payments/webhook — 결과 불명', () => {
+  it('포트원 결과 불명(타임아웃) — 500으로 재전송 유도', async () => {
+    portone.getPayment.mockReset();
+    portone.getPayment.mockImplementation(() => Promise.reject(new portone.PortoneUnknownError('타임아웃')));
+    const res = await request(app).post('/payments/webhook').send({ imp_uid: 'imp_99999999' });
+    expect(res.status).toBe(500);
+  });
 });
