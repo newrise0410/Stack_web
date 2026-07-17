@@ -1,11 +1,17 @@
 import { Router } from 'express';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { rateLimit } from '../middleware/rateLimit.js';
 import * as orderController from '../controllers/orderController.js';
 
 const router = Router();
 
-router.post('/', requireAuth, asyncHandler(orderController.createOrder));
+router.post(
+  '/',
+  requireAuth,
+  rateLimit({ windowMs: 60_000, max: 10, key: (req) => String(req.user?._id || req.ip), message: '주문 요청이 너무 많습니다. 잠시 후 다시 시도해주세요.' }),
+  asyncHandler(orderController.createOrder),
+);
 router.get('/', requireAuth, asyncHandler(orderController.listMyOrders));
 // 관리용 (:id 보다 먼저)
 router.get('/admin', requireAuth, requireAdmin, asyncHandler(orderController.listAllOrders));

@@ -6,6 +6,7 @@ import authRouter from './routes/auth.js';
 import usersRouter from './routes/users.js';
 import productsRouter from './routes/products.js';
 import ordersRouter from './routes/orders.js';
+import paymentsRouter from './routes/payments.js';
 import reviewsRouter from './routes/reviews.js';
 import wishlistRouter from './routes/wishlist.js';
 import emailsRouter from './routes/emails.js';
@@ -41,6 +42,7 @@ export function createApp() {
   app.use('/users', usersRouter);
   app.use('/products', productsRouter);
   app.use('/orders', ordersRouter);
+  app.use('/payments', paymentsRouter);
   app.use('/reviews', reviewsRouter);
   app.use('/wishlist', wishlistRouter);
   app.use('/emails', emailsRouter);
