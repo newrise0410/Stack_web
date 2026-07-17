@@ -292,7 +292,57 @@ export async function listMyOrders(req, res) {
   res.json({ page, limit, total, items });
 }
 
-// 전체 주문 목록 — GET /orders/admin (admin). ?status=&from=&to=&q=&page=&limit=
+// 상태별 건수 — GET /orders/admin/counts (admin). 탭 뱃지용 경량 집계.
+export async function getOrderCounts(req, res) {
+  const agg = await Order.aggregate([{ $group: { _id: '$status', n: { $sum: 1 } } }]);
+  const byStatus = Object.fromEntries(agg.map((r) => [r._id, r.n]));
+  res.json(Object.fromEntries(ORDER_STATES.map((s) => [s, byStatus[s] || 0])));
+}
+
+// 옵션별 제작 집계 — GET /orders/admin/production-summary (admin)
+// 미발송(결제완료·제작중) 주문을 상품×옵션으로 합산 — 3D 프린터 출력 계획용.
+export async function getProductionSummary(req, res) {
+  const items = await Order.aggregate([
+    { $match: { status: { $in: ['paid', 'preparing'] } } },
+    { $unwind: '$items' },
+    {
+      $group: {
+        _id: { slug: '$items.slug', option: '$items.option' },
+        name: { $first: '$items.name' },
+        nameKo: { $first: '$items.nameKo' },
+        image: { $first: '$items.image' },
+        paidQty: { $sum: { $cond: [{ $eq: ['$status', 'paid'] }, '$items.qty', 0] } },
+        preparingQty: { $sum: { $cond: [{ $eq: ['$status', 'preparing'] }, '$items.qty', 0] } },
+        totalQty: { $sum: '$items.qty' },
+        orders: { $addToSet: '$_id' },
+      },
+    },
+    {
+      $project: {
+        _id: 0, slug: '$_id.slug', option: '$_id.option',
+        name: 1, nameKo: 1, image: 1, paidQty: 1, preparingQty: 1, totalQty: 1,
+        orderCount: { $size: '$orders' },
+      },
+    },
+    { $sort: { totalQty: -1, slug: 1 } },
+  ]);
+  res.json({ items, generatedAt: new Date().toISOString() });
+}
+
+// 인쇄용 일괄 조회 — GET /orders/admin/batch?ids=a,b,c (admin, ≤50건)
+export async function getOrdersBatch(req, res) {
+  const ids = String(req.query.ids || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (ids.length < 1 || ids.length > 50) {
+    return res.status(400).json({ message: '인쇄할 주문은 1~50건이어야 합니다.' });
+  }
+  const valid = ids.filter((id) => /^[0-9a-fA-F]{24}$/.test(id));
+  const items = await Order.find({ _id: { $in: valid } }).populate('user', 'name email');
+  // 요청 순서 보존(인쇄 순서 = 선택 순서)
+  const byId = new Map(items.map((o) => [String(o._id), o]));
+  res.json({ items: valid.map((id) => byId.get(id)).filter(Boolean) });
+}
+
+// 전체 주문 목록 — GET /orders/admin (admin). ?status=&from=&to=&q=&product=&page=&limit=
 const ORDER_STATES = ['pending', 'paid', 'preparing', 'shipped', 'delivered', 'cancelled'];
 export async function listAllOrders(req, res) {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
@@ -319,6 +369,9 @@ export async function listAllOrders(req, res) {
     const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
     filter.$or = [{ orderNumber: rx }, { 'shippingAddress.recipient': rx }];
   }
+
+  const product = String(req.query.product || '').trim();
+  if (product) filter['items.slug'] = product;
 
   const [items, total] = await Promise.all([
     Order.find(filter).populate('user', 'name email').sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit),
