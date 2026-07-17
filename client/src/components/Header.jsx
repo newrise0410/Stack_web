@@ -8,6 +8,8 @@ const CATS = [
   { label: 'TABLE', to: '/category/Table' },
   { label: 'PENDANT', to: '/category/Pendant' },
   { label: 'MOON', to: '/category/MoonWall' },
+  { label: 'TECH', to: '/category/Tech' },
+  { label: 'CLOCK', to: '/category/Clock' },
   { label: 'SHOWCASE', to: '/category/all' },
   { label: 'PT', to: '/#pt' },
 ];

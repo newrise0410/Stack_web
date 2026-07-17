@@ -9,6 +9,8 @@ const TYPE_LABEL = {
   Table: '테이블 램프',
   Pendant: '펜던트',
   MoonWall: '문 · 월 램프',
+  Tech: '테크 · 충전',
+  Clock: '데스크 클락',
   all: '전체 상품',
 };
 

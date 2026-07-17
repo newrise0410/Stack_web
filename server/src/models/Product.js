@@ -18,8 +18,14 @@ const productSchema = new Schema(
     brand: { type: String, default: "STACK N' STAK" },
     name: { type: String, required: true, trim: true },
     nameKo: { type: String, trim: true },
-    category: { type: String, default: 'Lighting' },
-    type: { type: String, enum: ['Table', 'Pendant', 'MoonWall'], required: true },
+    category: { type: String, enum: ['Lighting', 'Tech', 'Clock'], default: 'Lighting' },
+    // 카탈로그의 단일 탐색 축(헤더 내비·카테고리 페이지가 이 값으로 필터).
+    // Lighting → Table/Pendant/MoonWall, Tech → Tech, Clock → Clock.
+    type: {
+      type: String,
+      enum: ['Table', 'Pendant', 'MoonWall', 'Tech', 'Clock'],
+      required: true,
+    },
     description: String,
     images: { type: [String], default: [] }, // 첫 장이 대표 이미지
     price: { type: Number, required: true, min: 0 }, // KRW 정수

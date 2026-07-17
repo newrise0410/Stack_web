@@ -16,6 +16,17 @@ client/.env
 *.log
 npm-debug.log*
 
+# ingest 중간 산출물 (Product/*.htm → 파싱 결과, 스크립트로 언제든 재생성)
+server/src/scripts/ingest-output.json
+
+# 인제스트 원본 — 저장해 둔 MakerWorld 모델 페이지(66개, 106MB).
+# 로컬 보관만 한다: 추출된 값은 이미 client/src/data/products.js 와 Cloudinary에 있고,
+# 재현이 필요하면 server/src/scripts/ingestMakerworldPages.mjs 를 다시 돌리면 된다.
+Product/
+
 # OS / tooling
 .DS_Store
+# macOS AppleDouble — OneDrive로 Mac↔Windows 동기화 시 생긴다.
+# 방치하면 vitest가 tests/._*.test.js 를 테스트로 착각해 유령 실패를 낸다.
+._*
 .playwright-mcp/

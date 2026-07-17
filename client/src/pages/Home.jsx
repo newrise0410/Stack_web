@@ -38,6 +38,8 @@ const TYPES = [
   { id: 'table', type: 'Table', title: '테이블 램프', tag: 'Table Lamps' },
   { id: 'pendant', type: 'Pendant', title: '펜던트', tag: 'Pendant Lamps' },
   { id: 'moon', type: 'MoonWall', title: '문 · 월 램프', tag: 'Moon & Wall' },
+  { id: 'tech', type: 'Tech', title: '테크 · 충전', tag: 'Desk Tech' },
+  { id: 'clock', type: 'Clock', title: '데스크 클락', tag: 'Desk Clocks' },
 ];
 
 export default function Home() {
@@ -176,7 +178,8 @@ export default function Home() {
       </section>
 
       {/* ── Type sections ────────────────────────────────── */}
-      {TYPES.map(({ id, type, title, tag }) => (
+      {/* 상품이 없는 타입은 빈 섹션 헤드만 남으므로 렌더에서 제외한다. */}
+      {TYPES.filter(({ type }) => byType(type).length > 0).map(({ id, type, title, tag }) => (
         <section key={id} id={id} className="mx-auto max-w-[1280px] px-5 pt-20">
           <SectionHead title={title} tagline={tag} href={`#${id}`} />
           <Grid items={byType(type)} />

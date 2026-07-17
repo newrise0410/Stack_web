@@ -60,7 +60,7 @@ export async function listProducts(req, res) {
 
 // READ (list, admin) — GET /products/admin?status=&type=&q=&sort=&page=&limit= — 모든 status 대상
 const PRODUCT_STATES = ['active', 'draft', 'soldout', 'archived'];
-const PRODUCT_TYPES = ['Table', 'Pendant', 'MoonWall'];
+const PRODUCT_TYPES = ['Table', 'Pendant', 'MoonWall', 'Tech', 'Clock'];
 export async function listAllProducts(req, res) {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
