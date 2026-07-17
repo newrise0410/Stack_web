@@ -6,13 +6,13 @@ import UserCoupon from '../models/UserCoupon.js';
 import { sendOrderPlaced, sendOrderStatus } from '../services/emailService.js';
 import { validateCoupon, computeCoupon } from '../services/couponService.js';
 import { applyPoints, EARN_RATE } from '../services/pointService.js';
-import { adjustSales } from '../services/salesService.js';
 import PointTransaction from '../models/PointTransaction.js';
 import { withTransaction } from '../utils/withTransaction.js';
 import { httpError } from '../utils/httpError.js';
 import { enqueueEvents, buildPaidEvents } from '../services/orderEventService.js';
 import { ensurePrepared } from '../services/checkoutService.js';
 import * as portone from '../services/portoneService.js';
+import { cancelOrderSaga, reverseOrderBenefits, finalizeCancelTxn } from '../services/cancelService.js';
 
 const SHIPPING_FEE = 3000;
 const FREE_SHIPPING_THRESHOLD = 50000; // 5만원 이상 무료배송
@@ -31,35 +31,6 @@ function genOrderNumber() {
 
 const MAX_ITEM_KINDS = 50; // 한 주문의 상품 종류 상한
 const MAX_QTY = 99; // 품목당 수량 상한
-
-// 취소 시 혜택 원복 — 쿠폰 복구 + 적립금(사용분 환급·적립분 회수).
-// 멱등(refund/reclaim 원장 존재 시 재실행 안 함)하므로 부분 실패 후 안전하게 재수렴 가능.
-// 모든 단계 성공 시에만 order.benefitsReversed=true 확정 — 중간 실패는 flag=false로 남아 재시도 대상.
-async function reverseOrderBenefits(order) {
-  if (order.benefitsReversed) return; // 이미 원복 완료
-  const userId = order.user?._id || order.user;
-
-  // 쿠폰 복구 (used:false 세팅이라 재실행 안전)
-  if (order.coupon?.code) {
-    await UserCoupon.updateOne(
-      { usedOrder: order._id },
-      { used: false, usedOrder: null, usedAt: null },
-    );
-  }
-  // 사용분 환급 — 이미 환급 원장이 있으면 재환급 금지(멱등). pointsUsed는 생성 전 실제 차감량.
-  const pointsUsed = order.amounts?.pointsUsed || 0;
-  if (pointsUsed > 0 && !(await PointTransaction.exists({ order: order._id, type: 'refund' }))) {
-    await applyPoints(userId, pointsUsed, 'refund', { order: order._id, note: `주문 ${order.orderNumber} 취소 환급` });
-  }
-  // 적립분 회수 — 예정치가 아니라 "실제 적립된 원장 합계"만, 이미 회수 원장이 있으면 재회수 금지(멱등).
-  const earnTxns = await PointTransaction.find({ order: order._id, type: 'earn' }).select('amount');
-  const actualEarned = earnTxns.reduce((sum, t) => sum + (t.amount || 0), 0);
-  if (actualEarned > 0 && !(await PointTransaction.exists({ order: order._id, type: 'reclaim' }))) {
-    await applyPoints(userId, -actualEarned, 'reclaim', { order: order._id, note: `주문 ${order.orderNumber} 취소 적립회수` });
-  }
-  // 모든 원복 단계가 성공했을 때만 플래그 확정
-  await Order.updateOne({ _id: order._id }, { $set: { benefitsReversed: true } });
-}
 
 // 주문 생성 — POST /orders (requireAuth)
 // 클라가 보낸 가격은 무시하고 서버가 DB 상품가로 합계를 재계산한다.
@@ -246,9 +217,7 @@ export async function createOrder(req, res) {
     } catch (e) {
       if (e instanceof portone.PortoneError) {
         // 확정 실패 → 주문을 닫고 혜택 원복
-        // TODO(Task 10): cancelService.finalizeCancelTxn로 교체
-        await Order.updateOne({ _id: order._id, status: 'pending' }, { $set: { status: 'cancelled', 'payment.failReason': '결제 사전등록 실패' } });
-        await reverseOrderBenefits(await Order.findById(order._id)).catch(() => {});
+        await finalizeCancelTxn(order._id, ['pending'], { reason: '결제 사전등록 실패' }).catch(() => {});
         throw httpError(502, '결제 준비에 실패했습니다. 다시 시도해주세요.');
       }
       // 결과 불명 — preparing 유지. 같은 멱등키 재요청이 ensurePrepared를 재시도한다.
@@ -357,70 +326,37 @@ export async function listAllOrders(req, res) {
   res.json({ page, limit, total, items });
 }
 
-// 주문 취소 — POST /orders/:id/cancel (본인/admin)
+// 주문 취소 — POST /orders/:id/cancel (본인/admin). 모든 취소는 saga 경유.
 export async function cancelOrder(req, res) {
   const order = await Order.findById(req.params.id);
   if (!order) return res.status(404).json({ message: '주문을 찾을 수 없습니다.' });
   if (String(order.user) !== String(req.user._id) && req.user.role !== 'admin') {
     return res.status(403).json({ message: '접근 권한이 없습니다.' });
   }
-  // 이미 취소됐지만 혜택 원복이 미완(부분 실패)이면 멱등 재실행으로 재수렴시킨다 — in-app 복구 경로.
-  if (order.status === 'cancelled') {
-    if (order.benefitsReversed) {
-      return res.status(400).json({ message: '이미 취소된 주문입니다.' });
-    }
-    try {
-      await reverseOrderBenefits(order);
-    } catch (e) {
-      console.error('[cancelOrder] 혜택 원복 재시도 실패:', order.orderNumber, e?.message);
-    }
-    const refreshed = await Order.findById(order._id).populate('user', 'name email');
-    return res.json(refreshed);
+  const r = await cancelOrderSaga(order._id, { actor: req.user.role === 'admin' ? 'admin' : 'user' });
+  switch (r.outcome) {
+    case 'cancelled':
+      return res.json(r.order);
+    case 'became_paid':
+      return res.json(r.order); // 클라이언트는 status==='paid'로 구분
+    case 'already_cancelled':
+      if (r.order?.benefitsReversed) return res.status(400).json({ message: '이미 취소된 주문입니다.' });
+      return res.json(r.order);
+    case 'payment_in_progress':
+      return res.status(409).json({ message: '결제 확인이 진행 중입니다. 잠시 후 다시 시도해주세요.' });
+    case 'refund_pending':
+      return res.status(202).json({ message: '환불이 접수되었습니다. 처리 완료까지 잠시 걸릴 수 있습니다.', order: r.order });
+    case 'review':
+      return res.status(409).json({ message: '환불 처리에 확인이 필요합니다. 관리자에게 문의해주세요.' });
+    default:
+      return res.status(400).json({ message: '이미 배송이 진행되어 취소할 수 없습니다.' });
   }
-  if (!['paid', 'preparing'].includes(order.status)) {
-    return res.status(400).json({ message: '이미 배송이 진행되어 취소할 수 없습니다.' });
-  }
-
-  // 단일 승자(single-winner) 원자적 전이: paid/preparing → cancelled 를 한 번만 성립시킨다.
-  // 동시 취소(더블클릭·본인+관리자)가 각각 read-check-save 하면 혜택원복(환급/회수)이 두 번 돌아
-  // 적립금이 중복 환급(무상 지급)되므로, 조건부 findOneAndUpdate 로 경합에서 한 요청만 통과시킨다.
-  const cancelled = await Order.findOneAndUpdate(
-    { _id: order._id, status: { $in: ['paid', 'preparing'] } },
-    { $set: { status: 'cancelled' } },
-    { new: true },
-  );
-  if (!cancelled) {
-    return res.status(409).json({ message: '이미 처리된 주문입니다.' }); // 경합에서 진 요청
-  }
-
-  // 판매량 원복 — 실패해도 취소·혜택원복은 계속 진행
-  try {
-    await adjustSales(cancelled.items, -1);
-  } catch {
-    /* salesCount 원복 실패 무시 */
-  }
-
-  // 쿠폰(·적립금) 원복 — 실패해도 취소는 성립(멱등이라 재시도로 재수렴). 삼키지 말고 로깅.
-  try {
-    await reverseOrderBenefits(cancelled);
-  } catch (e) {
-    console.error('[cancelOrder] 혜택 원복 실패:', cancelled.orderNumber, e?.message);
-  }
-
-  // 취소 안내 메일(목업, 주문 소유자 앞) — 실패해도 취소는 성립
-  try {
-    await cancelled.populate('user', 'name email');
-    await sendOrderStatus(cancelled, cancelled.user);
-  } catch {
-    /* 메일 생성 실패 무시 */
-  }
-  res.json(cancelled);
 }
 
 // 주문 상태 변경 — PATCH /orders/:id/status (admin)
 // 허용 전이만 강제하는 상태머신. cancelled는 종료(되돌리기 없음).
 const TRANSITIONS = {
-  pending: ['paid', 'cancelled'],
+  pending: ['cancelled'],
   paid: ['preparing', 'cancelled'],
   preparing: ['shipped', 'cancelled'],
   shipped: ['delivered', 'shipped'], // 동일상태 재요청 = 송장 수정용
@@ -433,10 +369,25 @@ export async function updateOrderStatus(req, res) {
   const order = await Order.findById(req.params.id);
   if (!order) return res.status(404).json({ message: '주문을 찾을 수 없습니다.' });
 
+  const refundStatus = order.payment?.refund?.status;
+  if (['requested', 'processing', 'review'].includes(refundStatus)) {
+    return res.status(409).json({ message: '환불 처리 중인 주문입니다. 완료 후 다시 시도해주세요.' });
+  }
+
   const prev = order.status; // 실제 상태 전이 여부 판단용
   const allowed = TRANSITIONS[prev] || [];
   if (!allowed.includes(next)) {
     return res.status(400).json({ message: `'${prev}' 상태에서 '${next}'(으)로 변경할 수 없습니다.` });
+  }
+
+  if (next === 'cancelled') {
+    const r = await cancelOrderSaga(order._id, { actor: 'admin', reason: '관리자 취소' });
+    if (['cancelled', 'already_cancelled'].includes(r.outcome)) {
+      const populated = await Order.findById(order._id).populate('user', 'name email');
+      return res.json(populated);
+    }
+    if (r.outcome === 'refund_pending') return res.status(202).json({ message: '환불 접수됨 — 처리 완료 후 자동 취소됩니다.', order: r.order });
+    return res.status(409).json({ message: '취소를 완료하지 못했습니다. 환불 상태를 확인해주세요.' });
   }
 
   // 배송중 전환/송장 수정 시 송장번호 필수
@@ -449,9 +400,8 @@ export async function updateOrderStatus(req, res) {
   }
 
   // 조건부 원자적 전이: 읽은 시점의 prev 상태일 때만 갱신한다.
-  // (비원자적 read-check-save 는 취소↔상태변경 경합에서 lost-update 로 cancelled 를 되살려
-  //  혜택원복이 두 번 도는 통로를 열어주므로, prev 로 compare-and-set 해 한 요청만 통과시킨다.)
-  const willCancel = next === 'cancelled';
+  // (비원자적 read-check-save 는 동시 상태변경 경합에서 lost-update 를 열어주므로,
+  //  prev 로 compare-and-set 해 한 요청만 통과시킨다.) cancelled 전이는 위에서 saga로 분기 완료.
   const updated = await Order.findOneAndUpdate(
     { _id: order._id, status: prev },
     { $set: setFields },
@@ -459,20 +409,6 @@ export async function updateOrderStatus(req, res) {
   );
   if (!updated) {
     return res.status(409).json({ message: '주문 상태가 이미 변경되었습니다. 다시 시도해주세요.' });
-  }
-
-  // 취소 전이 시 판매량 원복 (cancelled는 종료라 재가산 경로 없음) + 쿠폰(·적립금) 원복
-  if (willCancel) {
-    try {
-      await adjustSales(updated.items, -1);
-    } catch {
-      /* salesCount 원복 실패 무시 */
-    }
-    try {
-      await reverseOrderBenefits(updated);
-    } catch (e) {
-      console.error('[updateOrderStatus] 혜택 원복 실패:', updated.orderNumber, e?.message);
-    }
   }
 
   // 배송완료 전이 시 구매 적립 확정 지급 — 멱등(이미 적립 원장이 있으면 재지급 안 함).
@@ -496,7 +432,7 @@ export async function updateOrderStatus(req, res) {
   // 실제 상태 전이(next!==prev)일 때만 발송: shipped→shipped(송장 수정) 재발송 방지
   try {
     await updated.populate('user', 'name email');
-    if (next !== prev && ['shipped', 'delivered', 'cancelled'].includes(next)) {
+    if (next !== prev && ['shipped', 'delivered'].includes(next)) {
       await sendOrderStatus(updated, updated.user);
     }
   } catch {
