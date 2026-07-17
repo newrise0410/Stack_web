@@ -5,10 +5,9 @@
 ## 컬렉션 개요 & 관계
 
 ```
-User ──1:N──> Order            (한 유저가 여러 주문)
+User ──1:N──> Order            (한 유저가 여러 주문 — 탈퇴해도 tombstone이 참조를 유지)
 User ──1:N──> Review           (한 유저가 여러 리뷰)
-User ──1:1──> Cart             (유저당 장바구니 1개)
-User ──N:M──> Product          (wishlist: 유저.wishlist[] = 상품 참조)
+User  ~~~~~>  Product          (wishlist: 유저.wishlist[] = 상품 **slug 문자열** 배열, ref 아님)
 User  embeds  Address[]        (배송지 임베드)
 
 Category ──1:N──> Product      (카테고리별 상품)
@@ -27,23 +26,46 @@ Order  embeds  Address, Payment
 
 ## 1. `users`
 
+> **이 표는 as-built다** — 여기 있으면 코드에 있고, 코드에 있으면 여기 있다.
+> (다른 섹션은 아직 이 규약을 못 지킨다. 예: products의 `variants`/`sku`, `carts`·`categories`
+>  컬렉션은 **구현된 적이 없다**. 문서를 믿고 코드를 찾지 말 것.)
+
 | 필드 | 타입 | 설명 |
 |---|---|---|
 | `_id` | ObjectId | |
-| `email` | String | **unique index**, 로그인 ID (소문자 정규화) |
-| `passwordHash` | String | bcrypt (provider=local일 때) |
-| `provider` | String enum | `local` \| `kakao` \| `naver` (기본 local) |
-| `providerId` | String \| null | 소셜 로그인 고유 ID |
-| `name` | String | **실명** — 주문/배송용 |
+| `email` | String | **unique index**, 로그인 ID (소문자 정규화). 탈퇴 시 `withdrawn_<_id>@deleted.local`로 재작성 |
+| `passwordHash` | String | bcrypt (provider=local일 때). `select:false` — 조회 시 `+passwordHash` 필요 |
+| `provider` | String enum | `local` \| `kakao` \| `naver` \| `google` \| `apple` (기본 local) |
+| `providerId` | String \| null | 소셜 로그인 고유 ID. 탈퇴 시 null |
+| `name` | String | **실명** — 주문/배송용. 탈퇴 시 `'탈퇴한 회원'` |
 | `nickname` | String \| null | **선택** — 리뷰 등 공개 표시명(미입력 시 실명 마스킹) |
-| `phone` | String | |
+| `phone` | String | provider=local일 때만 required |
 | `role` | String enum | `client` \| `admin` (기본 **client**) — 접근권한 구분 |
+| `status` | String enum | `active` \| `suspended` \| `withdrawn` (기본 active) — 아래 '탈퇴' 참조 |
+| `withdrawnAt` | Date \| null | 탈퇴 시각. 법정 보관 만료 계산의 기준점 |
 | `emailVerified` | Boolean | 기본 false |
 | `phoneVerified` | Boolean | 기본 false |
 | `agreements` | Object | 약관 동의 이력 (아래) |
 | `addresses` | \[Address] | 배송지 임베드 (아래) |
-| `wishlist` | \[ObjectId→Product] | 찜 목록 |
+| `wishlist` | \[String] | 찜한 상품 **slug** 목록 (ObjectId 참조가 아님) |
+| `points` | Int | 적립금 잔액. 단일 진실은 이 필드, 이력은 `pointtransactions` |
+| `birthday` | String \| null | `'YYYY-MM-DD'`. **Date가 아니다** — 생일은 순간이 아니라 달력 날짜라 Date로 저장하면 KST↔UTC에서 하루 밀린다 |
+| `gender` | String enum \| null | `male` \| `female` \| `other`. null = 미입력 |
+| `grade` | String enum | `basic` \| `silver` \| `gold` (기본 basic). ⚠️ **관리자 수동 라벨** — 자동 산정 없고 적립률과 무관(EARN_RATE 일률) |
+| `lastLoginAt` | Date \| null | 마지막 **로그인 성공** 시각('접속'이 아님 — JWT 7일 유효). null = 이력 없음 |
 | `createdAt / updatedAt` | Date | timestamps |
+
+**수집 시점**: `birthday`·`gender`는 **가입 시 받지 않는다**(최소수집) — 마이페이지 선택 입력 전용이며 `CREATE_FIELDS` 화이트리스트가 이를 강제한다. `grade`는 어느 화이트리스트에도 없다(관리자 라우트 전용).
+
+**탈퇴 (`DELETE /users/:id` → `services/withdrawalService.js`)** — 하드 삭제가 아니라 **tombstone 전환**이다:
+- 왜: `Order.user`가 required라 문서를 지우면 주문·리뷰·적립금 참조가 고아가 된다. 전자상거래법상 계약·대금결제 기록은 **5년 보관 의무**라 애초에 지울 수 없다. 법정 보관의 주체는 User가 아니라 **Order**(배송지 스냅샷을 이미 보유) — User의 PII는 편의를 위한 중복 사본이라 즉시 파기해도 기록이 온전하다.
+- 즉시 파기: email·passwordHash·providerId·name·nickname·phone·addresses·wishlist·birthday·gender·lastLoginAt·points·마케팅 동의. 발송 메일(`emailmessages`)과 outbox 수신자 스냅샷(`orderevents.payload.user`)도 파기.
+- 보존: 주문 전체(무수정) · 적립금 원장(+`withdraw` 소멸 1건) · 사용한 쿠폰 · 리뷰(작성자명만 익명화)
+- 차단: 진행 중 주문(`pending`/`paid`/`preparing`/`shipped`)이 있으면 409. `PATCH /users/:id/status`로는 `withdrawn`을 찍을 수 없다(파기 절차를 건너뛴 좀비 문서 방지) — 이 비대칭은 사양이다.
+- 재가입: 같은 이메일로 가능하되 **새 `_id`의 별개 계정**이다. 이전 주문·적립금과 연결되지 않는다(연결할 수 있으면 파기한 것이 아니다).
+
+> **미구현 부채**: 5년 만료 파기 배치가 없다 — `withdrawnAt`이 그 기준점이다. 없으면 소프트 삭제가 그냥 영구 보관이 된다. 쿼리는 반드시 `{ status:'withdrawn', withdrawnAt:{$lte:cutoff} }`로 **status를 함께 걸 것** — BSON 비교 순서상 Null < Date라 `$lte`만 쓰면 탈퇴한 적 없는 회원이 전원 매칭된다.
+> **알려진 구멍**: 가입 보너스는 `socialLogin`의 `deviceId`만 바꾸면 무한 수령 가능하다(없으면 `randomUUID()`로 새 계정). 막으려면 소셜 경로부터 손대야 한다.
 
 **Address (임베드)**: `{ label, recipient, phone, zipcode, address1, address2, deliveryMemo, isDefault:Boolean }`
 - `zipcode`·`address1`은 우편번호 검색 API(카카오/다음)로 자동 입력, `address2`(상세주소)만 직접 입력.
@@ -59,7 +81,9 @@ Order  embeds  Address, Payment
 }
 ```
 
-**회원가입 수집 항목**: (필수) 이메일·비밀번호·이름·휴대폰 + 필수동의 3개 / (선택) 닉네임·마케팅동의 · 주소는 결제 또는 마이페이지에서 등록.
+**회원가입 수집 항목**: (필수) 이메일·비밀번호·이름·휴대폰 + 필수동의 3개 / (선택) 닉네임·마케팅동의 · 주소는 결제 또는 마이페이지에서 등록. 생년월일·성별은 가입에서 받지 않는다(마이페이지 선택).
+
+> ⚠️ `birthday`·`gender`를 실제로 수집하려면 **개인정보처리방침에 수집 항목·목적·보유기간을 고지**해야 한다. 이 저장소엔 아직 처리방침 본문이 없다 — 고지 없이 배포하면 그 자체로 미고지다.
 
 **역할(role) — 접근 권한**:
 - `client` (일반 회원): 주문·장바구니·리뷰·본인 정보. 가입 시 기본값.

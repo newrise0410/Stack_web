@@ -33,6 +33,8 @@ function ProfileTab() {
     name: user.name || '',
     nickname: user.nickname || '',
     phone: user.phone || '',
+    birthday: user.birthday || '',
+    gender: user.gender || '',
   });
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
@@ -43,7 +45,11 @@ function ProfileTab() {
     e.preventDefault();
     setMsg(''); setErr(''); setBusy(true);
     try {
-      await updateProfile({ name: form.name, nickname: form.nickname, phone: form.phone });
+      // 빈 문자열은 서버 스키마의 setter가 null로 정규화한다 — 여기서 굳이 || null 하지 않는다.
+      await updateProfile({
+        name: form.name, nickname: form.nickname, phone: form.phone,
+        birthday: form.birthday, gender: form.gender,
+      });
       setMsg('저장되었습니다.');
     } catch (e2) {
       setErr(e2.response?.data?.message || '저장에 실패했습니다.');
@@ -70,6 +76,28 @@ function ProfileTab() {
       <div>
         <label className="mb-1 block text-[13px] text-mute">휴대폰</label>
         <input className={inputCls} name="phone" value={form.phone} onChange={onChange} required />
+      </div>
+
+      {/* 선택 입력 — 가입 시 받지 않는다(최소수집). 수집 목적을 화면에서 고지한다. */}
+      <div className="border-t border-line pt-4">
+        <p className="text-[13px] font-medium text-ink">추가 정보 (선택)</p>
+        <p className="mt-1 text-[12px] text-mute">
+          생일 쿠폰 발급과 상품 추천에만 사용합니다. 입력하지 않아도 서비스 이용에 제한이 없습니다.
+        </p>
+      </div>
+      <div>
+        <label className="mb-1 block text-[13px] text-mute">생년월일</label>
+        <input className={inputCls} type="date" name="birthday" value={form.birthday}
+          onChange={onChange} max={new Date().toISOString().slice(0, 10)} />
+      </div>
+      <div>
+        <label className="mb-1 block text-[13px] text-mute">성별</label>
+        <select className={inputCls} name="gender" value={form.gender} onChange={onChange}>
+          <option value="">선택 안 함</option>
+          <option value="female">여성</option>
+          <option value="male">남성</option>
+          <option value="other">기타</option>
+        </select>
       </div>
 
       {msg && <p className="text-[13px] text-ink">{msg}</p>}

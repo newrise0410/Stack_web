@@ -41,9 +41,20 @@ export async function enqueueEvents(orderId, events, session) {
 }
 
 async function loadRecipient(order, payload) {
-  if (payload?.user?.email) return payload.user;
-  const u = await User.findById(order.user).select('name email');
-  return u ? { name: u.name, email: u.email } : null;
+  // 스냅샷에 _id를 복원해서 돌려준다 — emailService가 `user?._id`로 EmailMessage.user를 채우는데
+  // buildPaidEvents의 스냅샷엔 _id가 없어 지금까지 outbox 경로의 메일은 전부 user:null로
+  // 저장됐다. 그 탓에 마이페이지 메일함(user 기준 조회)이 주문 접수 메일을 못 보여주고,
+  // 탈퇴 시 user 기준 파기도 이 메일들을 놓친다. order.user에서 복원하면 이미 큐에 쌓인
+  // 옛 이벤트까지 소급 교정된다.
+  if (payload?.user?.email) return { ...payload.user, _id: order.user };
+
+  // ⚠️ status를 select에서 빼면 아래 가드가 **조용히 무력화**된다 — Mongoose는 프로젝션으로
+  //    제외된 path에 default를 채우지 않으므로 undefined !== 'withdrawn'이 되고 예외도 안 난다.
+  const u = await User.findById(order.user).select('name email status');
+  // 탈퇴 tombstone에는 메일을 보내지 않는다. 탈퇴 시 payload.user 스냅샷을 $unset하므로
+  // (withdrawalService) 그 뒤의 재시도는 반드시 이 폴백으로 내려와 여기서 걸린다.
+  if (!u || u.status === 'withdrawn') return null;
+  return u;
 }
 
 async function runEvent(event) {

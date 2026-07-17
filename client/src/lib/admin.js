@@ -56,6 +56,11 @@ export async function setUserStatus(id, status) {
   const { data } = await api.patch(`/users/${id}/status`, { status });
   return data;
 }
+// 등급은 관리자 수동 지정 전용 — 자동 산정이 없고 적립률과도 연결돼 있지 않다(표시용 라벨).
+export async function setUserGrade(id, grade) {
+  const { data } = await api.patch(`/users/${id}/grade`, { grade });
+  return data;
+}
 
 // ── 상품 ───────────────────────────────────────────────────
 export async function fetchAdminProducts(params = {}) {

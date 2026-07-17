@@ -154,7 +154,8 @@ export async function getAnalytics(req, res) {
 
 // 회원 상세 — GET /admin/members/:id (admin). 프로필 + 주문 + 집계.
 export async function getMember(req, res) {
-  const user = await User.findById(req.params.id);
+  // 생년월일·성별 제외 — 회원 관리(주문·적립금·쿠폰)에 필요한 정보가 아니다. 열람 최소화.
+  const user = await User.findById(req.params.id).select('-birthday -gender');
   if (!user) return res.status(404).json({ message: '회원을 찾을 수 없습니다.' });
   const orders = await Order.find({ user: user._id }).sort({ createdAt: -1 });
   const totalSpent = orders

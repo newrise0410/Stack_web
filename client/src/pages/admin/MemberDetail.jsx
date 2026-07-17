@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { fetchMember, setUserRole, setUserStatus } from '../../lib/admin.js';
+import { fetchMember, setUserRole, setUserStatus, setUserGrade } from '../../lib/admin.js';
 import { fetchAdminCoupons, issueCouponToMember, couponBenefitText } from '../../lib/coupon.js';
 import { adjustMemberPoints, POINT_TYPE_LABEL } from '../../lib/points.js';
 import { useToast } from '../../lib/toast.jsx';
 import { won } from '../../lib/format.js';
 import StatCard from '../../components/admin/StatCard.jsx';
 import StatusBadge from '../../components/admin/StatusBadge.jsx';
+
+const STATUS_LABEL = { active: '활성', suspended: '정지됨', withdrawn: '탈퇴' };
+// ⚠️ 등급은 관리자 수동 지정 라벨이다 — 적립률(EARN_RATE)은 전 회원 일률이며 등급과 무관하다.
+//    고객에게 등급 혜택을 고지하려면 표시광고상 이행 의무가 생긴다는 점을 알고 바꿀 것.
+const GRADE_LABEL = { basic: '일반', silver: '실버', gold: '골드' };
 
 function PointsSection({ userId, balance, transactions, onChanged }) {
   const toast = useToast();
@@ -169,9 +174,24 @@ export default function MemberDetail() {
     }
   };
 
+  // 등급은 자동 산정이 없는 **수동 라벨**이다 — 적립률은 전 회원 일률이라 등급과 무관하다.
+  // (서버 User.js의 grade 주석 참조. 혜택을 고지하려면 표시광고상 이행 의무가 따라온다.)
+  const changeGrade = async (next) => {
+    setBusy(true);
+    try {
+      updateUser(await setUserGrade(id, next));
+      toast.success(`등급을 ${GRADE_LABEL[next]}(으)로 변경했습니다.`);
+    } catch (e) {
+      toast.error(e.response?.data?.message || '등급 변경에 실패했습니다.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (err) return <p className="py-12 text-center text-mute">{err}</p>;
   if (!d) return <p className="py-12 text-center text-mute">불러오는 중…</p>;
   const { user, orders, orderCount, totalSpent, points = 0, pointTransactions = [] } = d;
+  const withdrawn = user.status === 'withdrawn';
 
   return (
     <div className="max-w-3xl">
@@ -179,29 +199,52 @@ export default function MemberDetail() {
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-bold tracking-tight">{user.name}</h1>
         <span className={user.role === 'admin' ? 'text-sm font-medium text-ink' : 'text-sm text-mute'}>{user.role}</span>
-        <span className={`text-sm ${user.status === 'suspended' ? 'text-sale' : 'text-mute'}`}>
-          {user.status === 'suspended' ? '정지됨' : '활성'}
+        <span className={`text-sm ${user.status === 'active' ? 'text-mute' : 'text-sale'}`}>
+          {STATUS_LABEL[user.status] || user.status}
         </span>
+        {!withdrawn && user.grade !== 'basic' && (
+          <span className="border border-ink px-2 py-0.5 text-[12px] font-medium">{GRADE_LABEL[user.grade]}</span>
+        )}
       </div>
-      <p className="mt-1 text-[13px] text-mute">{user.email} · 가입 {user.createdAt?.slice(0, 10)}</p>
+      <p className="mt-1 text-[13px] text-mute">
+        {user.email} · 가입 {user.createdAt?.slice(0, 10)}
+        {withdrawn && user.withdrawnAt && ` · 탈퇴 ${user.withdrawnAt.slice(0, 10)}`}
+      </p>
+      {withdrawn && (
+        <p className="mt-3 border border-line bg-tint px-3 py-2 text-[13px] text-mute">
+          탈퇴한 회원입니다. 개인정보는 파기됐고 주문 기록만 법정 보관 기간(5년) 동안 남아 있습니다.
+        </p>
+      )}
 
       <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard label="주문 수" value={`${orderCount}건`} />
         <StatCard label="총 구매액" value={`${won(totalSpent)}원`} sub="취소 제외" />
         <StatCard label="적립금" value={`${won(points)}P`} />
-        <StatCard label="가입 경로" value={user.provider} />
+        {/* '접속'이 아니라 '로그인'이다 — JWT가 7일 유효라 로그인 없이도 활동할 수 있다. */}
+        <StatCard label="최근 로그인" value={user.lastLoginAt ? user.lastLoginAt.slice(0, 10) : '기록 없음'}
+          sub={user.provider} />
       </div>
 
-      <div className="mt-6 flex gap-2">
-        <button onClick={toggleRole} disabled={busy}
-          className="border border-ink px-5 py-2.5 text-sm font-medium hover:bg-tint disabled:opacity-50">
-          {user.role === 'admin' ? '관리자 해제' : '관리자 지정'}
-        </button>
-        <button onClick={toggleStatus} disabled={busy}
-          className="border border-line px-5 py-2.5 text-sm font-medium text-sale hover:bg-tint disabled:opacity-50">
-          {user.status === 'suspended' ? '정지 해제' : '계정 정지'}
-        </button>
-      </div>
+      {!withdrawn && (
+        <div className="mt-6 flex flex-wrap items-center gap-2">
+          <button onClick={toggleRole} disabled={busy}
+            className="border border-ink px-5 py-2.5 text-sm font-medium hover:bg-tint disabled:opacity-50">
+            {user.role === 'admin' ? '관리자 해제' : '관리자 지정'}
+          </button>
+          <button onClick={toggleStatus} disabled={busy}
+            className="border border-line px-5 py-2.5 text-sm font-medium text-sale hover:bg-tint disabled:opacity-50">
+            {user.status === 'suspended' ? '정지 해제' : '계정 정지'}
+          </button>
+          <label className="ml-auto flex items-center gap-2 text-[13px] text-mute">
+            등급
+            <select value={user.grade || 'basic'} disabled={busy}
+              onChange={(e) => changeGrade(e.target.value)}
+              className="border border-line px-3 py-2 text-sm text-ink focus:border-ink focus:outline-none disabled:opacity-50">
+              {Object.entries(GRADE_LABEL).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
 
       <section className="mt-10">
         <h2 className="mb-3 text-lg font-bold">주문 내역</h2>

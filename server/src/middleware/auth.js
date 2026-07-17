@@ -15,6 +15,12 @@ export async function requireAuth(req, res, next) {
     if (user.status === 'suspended') {
       return res.status(403).json({ message: '정지된 계정입니다. 고객센터에 문의해주세요.' });
     }
+    // 탈퇴 계정도 같은 이유로 실시간 차단 — 탈퇴 직전 발급된 JWT가 최대 7일 살아 있다.
+    // 401(403 아님)인 이유: 계정이 더는 존재하지 않는다는 의미이고, 클라의 401 인터셉터가
+    // 토큰을 정리하고 로그인 화면으로 보낸다.
+    if (user.status === 'withdrawn') {
+      return res.status(401).json({ message: '탈퇴한 계정입니다.' });
+    }
 
     req.user = user;
     return next();

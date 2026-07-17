@@ -22,9 +22,16 @@ export async function applyPoints(userId, delta, type, { order = null, note = ''
 }
 
 async function execApplyPoints(userId, delta, type, { order, note }, session) {
-  // { new:false }로 갱신 직전(pre-image) 문서를 받아 실제 반영량을 계산
+  // { new:false }로 갱신 직전(pre-image) 문서를 받아 실제 반영량을 계산.
+  // status: { $ne: 'withdrawn' } — 탈퇴 tombstone에는 적립금이 붙지 않는다.
+  // 이 한 줄이 applyPoints의 모든 호출 경로(earn/refund/reclaim/spend/admin_adjust)를 막는다.
+  // 없으면 실제로 되살아난다: orderTransitionService는 delivered→delivered 재전이를
+  // '적립 지급 재시도'로 허용하므로, 적립이 실패했던 delivered 주문을 가진 회원이 탈퇴한 뒤
+  // 관리자가 재전이를 찍으면 tombstone의 points가 올라가고 파기 시각 이후의 원장이 생긴다.
+  // ⚠️ 순서 의존: withdrawalService는 status를 'withdrawn'으로 바꾸기 **전에** 소멸분을
+  //    기록해야 자기 자신이 이 필터에 걸리지 않는다.
   const prev = await User.findOneAndUpdate(
-    { _id: userId },
+    { _id: userId, status: { $ne: 'withdrawn' } },
     [{ $set: { points: { $max: [0, { $add: [{ $ifNull: ['$points', 0] }, delta] }] } } }],
     { new: false, session },
   );

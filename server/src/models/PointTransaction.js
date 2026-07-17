@@ -7,9 +7,11 @@ const pointTransactionSchema = new Schema(
   {
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     amount: { type: Number, required: true },
+    // withdraw — 탈퇴 시 잔액 소멸. 'reclaim'(주문 취소 시 적립 회수)을 재사용하지 않는 이유는
+    // 의미가 달라 원장 조회 시 오독을 부르기 때문. order:null이라 아래 partial unique와 무관하다.
     type: {
       type: String,
-      enum: ['signup', 'earn', 'spend', 'reclaim', 'refund', 'admin_adjust'],
+      enum: ['signup', 'earn', 'spend', 'reclaim', 'refund', 'admin_adjust', 'withdraw'],
       required: true,
     },
     order: { type: Schema.Types.ObjectId, ref: 'Order', default: null },

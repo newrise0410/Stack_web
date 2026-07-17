@@ -36,9 +36,23 @@ export async function login(req, res) {
   if (user.status === 'suspended') {
     return res.status(403).json({ message: '정지된 계정입니다. 고객센터에 문의해주세요.' });
   }
+  // 탈퇴 계정은 위 :33에서 이미 401로 걸린다 — passwordHash를 $unset했으므로 comparePassword가
+  // false를 반환한다. 여기 status 체크를 더하지 않는 이유는 계정 존재 여부 비노출 정책 때문.
 
+  await touchLogin(user);
   const token = signToken(user);
   res.json({ token, user });
+}
+
+// 마지막 로그인 성공 시각 기록.
+// ⚠️ 반드시 인증·상태 검사를 **통과한 뒤에만** 호출할 것 — 위로 옮기면 실패한 로그인 시도나
+//    정지·탈퇴 계정에도 기록이 남는다. requireAuth로 옮기면 요청마다 User 쓰기가 발생한다.
+// updateOne + timestamps:false인 이유: updatedAt은 '회원정보가 바뀐 시각'이어야 하는데
+// 로그인마다 갱신되면 그 의미를 잃는다. 실패해도 로그인은 성립시킨다(부가 기록).
+async function touchLogin(user) {
+  try {
+    await User.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } }, { timestamps: false });
+  } catch { /* 로그인을 실패시키지 않는다 */ }
 }
 
 // 스터디용 mock 소셜 로그인. 실제 OAuth 아님.
@@ -95,7 +109,14 @@ export async function socialLogin(req, res) {
   if (user.status === 'suspended') {
     return res.status(403).json({ message: '정지된 계정입니다. 고객센터에 문의해주세요.' });
   }
+  // 소셜은 비밀번호가 없어 로컬처럼 자연 차단되지 않는다 — 명시적으로 막는다.
+  // (탈퇴 시 providerId를 null로 파기하므로 위 findOne({provider,providerId})이 tombstone을
+  //  찾지 못해 새 계정이 만들어지는 게 정상 경로다. 이건 그 경로가 뚫렸을 때의 방어선.)
+  if (user.status === 'withdrawn') {
+    return res.status(401).json({ message: '탈퇴한 계정입니다.' });
+  }
 
+  await touchLogin(user);
   const token = signToken(user);
   res.json({ token, user });
 }

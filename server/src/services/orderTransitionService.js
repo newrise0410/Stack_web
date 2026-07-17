@@ -37,7 +37,7 @@ export async function applyTransition(orderId, next, { courier = '', trackingNum
     const actorLabel = actor === 'admin' ? '관리자' : actor; // 저장·노출용 한글 라벨
     const r = await cancelOrderSaga(order._id, { actor, reason: `${actorLabel} 취소` });
     if (['cancelled', 'already_cancelled'].includes(r.outcome)) {
-      const populated = await Order.findById(order._id).populate('user', 'name email');
+      const populated = await Order.findById(order._id).populate('user', 'name email status');
       return { ok: true, order: populated };
     }
     if (r.outcome === 'refund_pending') {
@@ -77,10 +77,12 @@ export async function applyTransition(orderId, next, { courier = '', trackingNum
   }
 
   // populate + 상태 메일(실제 전이일 때만 — 송장 수정 재발송 방지). 실패해도 전이는 성립.
+  // ⚠️ status를 populate 필드에서 빼면 탈퇴 가드가 조용히 무력화된다(undefined !== 'withdrawn').
   try {
-    await updated.populate('user', 'name email');
+    await updated.populate('user', 'name email status');
     if (next !== prev && ['shipped', 'delivered'].includes(next)) {
-      await sendOrderStatus(updated, updated.user);
+      // 탈퇴 tombstone에는 보내지 않는다 — withdrawn_<id>@deleted.local로 발송되는 것을 막는다.
+      if (updated.user?.status !== 'withdrawn') await sendOrderStatus(updated, updated.user);
     }
   } catch { /* 무시 */ }
   return { ok: true, order: updated };
