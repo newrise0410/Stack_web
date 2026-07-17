@@ -83,6 +83,12 @@ export default function OrderDetail() {
             환불 {({ requested: '요청됨', processing: '처리 중', done: '완료', review: '확인 필요' })[o.payment.refund.status]}
           </span>
         )}
+        <button
+          onClick={() => window.open(`/admin/orders/print?ids=${o._id}`, '_blank')}
+          className="ml-auto border border-line px-3 py-1.5 text-[12px] hover:border-ink"
+        >
+          주문서 인쇄
+        </button>
       </div>
       {o.payment?.refund?.status === 'review' && (
         <p className="mt-1 text-[12px] text-sale">{o.payment.refund.reason}</p>

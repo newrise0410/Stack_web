@@ -12,6 +12,7 @@ import AdminLayout from './components/admin/AdminLayout.jsx';
 import Dashboard from './pages/admin/Dashboard.jsx';
 import OrdersAdmin from './pages/admin/OrdersAdmin.jsx';
 import OrderDetail from './pages/admin/OrderDetail.jsx';
+import OrderPrint from './pages/admin/OrderPrint.jsx';
 import Production from './pages/admin/Production.jsx';
 import ProductsAdmin from './pages/admin/ProductsAdmin.jsx';
 import MembersAdmin from './pages/admin/MembersAdmin.jsx';
@@ -63,6 +64,16 @@ export default function App() {
           }
         />
       </Route>
+
+      {/* 어드민 주문서 인쇄 — AdminLayout(사이드바) 밖, 단독 라우트 */}
+      <Route
+        path="/admin/orders/print"
+        element={
+          <RequireAdmin>
+            <OrderPrint />
+          </RequireAdmin>
+        }
+      />
 
       {/* 어드민 — 스토어 Layout(헤더) 밖, 전용 셸 */}
       <Route
