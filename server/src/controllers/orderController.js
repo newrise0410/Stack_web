@@ -177,6 +177,10 @@ export async function createOrder(req, res) {
             idempotencyKey,
             requestHash,
             status: zeroAmount ? 'paid' : 'pending',
+            statusHistory: [{
+              status: zeroAmount ? 'paid' : 'pending', at: now, actor: 'system',
+              reason: zeroAmount ? '0원 주문 자동 결제' : '주문 생성',
+            }],
             paymentMethod: zeroAmount ? 'points' : 'card',
             payment: zeroAmount
               ? { provider: 'none', method: 'points', paidAt: now }
@@ -351,14 +355,15 @@ export function buildAdminOrderFilter(query) {
   const status = String(query.status || '');
   if (ORDER_STATES.includes(status)) filter.status = status;
 
-  const from = query.from ? new Date(String(query.from)) : null;
-  const to = query.to ? new Date(String(query.to)) : null;
+  // 날짜 경계는 KST로 고정한다. setHours는 프로세스 로컬 TZ라 UTC 배포 시 9시간 어긋나,
+  // 같은 CSV 안에서 '주문일' 컬럼(kstDate, KST)과 필터 경계가 불일치했다.
+  // date-only 입력('YYYY-MM-DD')에 +09:00을 붙여 KST 자정/자정직전으로 파싱한다.
+  const from = query.from ? new Date(`${String(query.from).slice(0, 10)}T00:00:00+09:00`) : null;
+  const to = query.to ? new Date(`${String(query.to).slice(0, 10)}T23:59:59.999+09:00`) : null;
   if (from && !Number.isNaN(from.getTime())) {
-    from.setHours(0, 0, 0, 0);
     filter.createdAt = { ...(filter.createdAt || {}), $gte: from };
   }
   if (to && !Number.isNaN(to.getTime())) {
-    to.setHours(23, 59, 59, 999);
     filter.createdAt = { ...(filter.createdAt || {}), $lte: to };
   }
 
@@ -424,6 +429,7 @@ export async function updateOrderStatus(req, res) {
   const r = await applyTransition(req.params.id, String(req.body.status || ''), {
     courier: req.body.courier,
     trackingNumber: req.body.trackingNumber,
+    reason: String(req.body.reason || '').slice(0, 200), // 취소 사유(선택) — statusHistory·failReason에 저장
     actor: 'admin',
   });
   if (r.ok) return res.json(r.order);

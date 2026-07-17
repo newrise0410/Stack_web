@@ -29,6 +29,18 @@ const shippingAddressSchema = new Schema(
   { _id: false },
 );
 
+// 상태 변경 이력 — 누가(actor) 언제(at) 왜(reason) 바꿨나. actor가 이미 applyTransition까지
+// 전달되는데 저장되는 곳이 없었다. 원자적 $push로 전이와 같은 write에 기록해 구멍을 막는다.
+const statusHistorySchema = new Schema(
+  {
+    status: { type: String, required: true },
+    at: { type: Date, default: Date.now },
+    actor: { type: String, default: 'system' }, // 'admin' | 'user' | 'system'
+    reason: { type: String, default: '' },
+  },
+  { _id: false },
+);
+
 const orderSchema = new Schema(
   {
     orderNumber: { type: String, required: true, unique: true, index: true },
@@ -56,6 +68,7 @@ const orderSchema = new Schema(
       enum: ['pending', 'paid', 'preparing', 'shipped', 'delivered', 'cancelled'],
       default: 'pending',
     },
+    statusHistory: { type: [statusHistorySchema], default: [] },
     paymentMethod: { type: String, default: 'card' }, // 'card'(포트원) | 'points'(0원 주문) | 'mock'(레거시)
     // 포트원 결제·환불 상태 (status enum은 불변 — 세부 상태는 여기서 관리)
     payment: {
@@ -72,6 +85,9 @@ const orderSchema = new Schema(
       refund: {
         status: { type: String, enum: ['none', 'requested', 'processing', 'done', 'review'], default: 'none' },
         reason: { type: String, default: '' },
+        // 취소 요청자 — 락 시점에 저장해 executeRefund가 뒤늦게 finalizeCancelTxn을 부를 때
+        // statusHistory의 actor를 복원한다. reason을 refund.reason으로 나르는 것과 같은 이유.
+        actor: { type: String, default: '' },
         requestedAt: { type: Date, default: null },
         completedAt: { type: Date, default: null },
         cancelAmount: { type: Number, default: 0 },

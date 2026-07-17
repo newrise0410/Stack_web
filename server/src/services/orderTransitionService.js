@@ -18,7 +18,7 @@ export const TRANSITIONS = {
 // 관리자 상태 전이의 단일 진입점 — 단건 API와 일괄 API가 공유한다.
 // 검증(전이표·환불잠금·송장)→CAS→부수효과(적립·메일)를 모두 포함하므로
 // 어느 경로로 와도 규칙이 동일하다. cancelled는 cancelOrderSaga에 위임.
-export async function applyTransition(orderId, next, { courier = '', trackingNumber = '', actor = 'admin' } = {}) {
+export async function applyTransition(orderId, next, { courier = '', trackingNumber = '', actor = 'admin', reason = '' } = {}) {
   const order = await Order.findById(orderId).catch(() => null);
   if (!order) return { ok: false, code: 'not_found', message: '주문을 찾을 수 없습니다.' };
 
@@ -35,7 +35,9 @@ export async function applyTransition(orderId, next, { courier = '', trackingNum
 
   if (next === 'cancelled') {
     const actorLabel = actor === 'admin' ? '관리자' : actor; // 저장·노출용 한글 라벨
-    const r = await cancelOrderSaga(order._id, { actor, reason: `${actorLabel} 취소` });
+    // 관리자가 입력한 사유가 있으면 그것을, 없으면 기본 라벨을 쓴다(P1-7). 이 reason이
+    // payment.refund.reason·failReason·statusHistory에 함께 저장된다.
+    const r = await cancelOrderSaga(order._id, { actor, reason: reason || `${actorLabel} 취소` });
     if (['cancelled', 'already_cancelled'].includes(r.outcome)) {
       const populated = await Order.findById(order._id).populate('user', 'name email status');
       return { ok: true, order: populated };
@@ -54,12 +56,14 @@ export async function applyTransition(orderId, next, { courier = '', trackingNum
     setFields.trackingNumber = tn;
   }
 
-  // 조건부 원자적 전이 — 경합 패배는 conflict
-  const updated = await Order.findOneAndUpdate(
-    { _id: order._id, status: prev },
-    { $set: setFields },
-    { new: true },
-  );
+  // 조건부 원자적 전이 — 경합 패배는 conflict. 이력은 같은 write에 $push해 구멍을 막는다.
+  // 단 동일상태 재요청(shipped→shipped 송장수정, delivered→delivered 적립재시도)은 실제 전이가
+  // 아니므로 이력에 남기지 않는다 — 안 그러면 송장을 3번 고칠 때 '배송중'이 3개 쌓인다.
+  const update = { $set: setFields };
+  if (next !== prev) {
+    update.$push = { statusHistory: { status: next, at: new Date(), actor, reason } };
+  }
+  const updated = await Order.findOneAndUpdate({ _id: order._id, status: prev }, update, { new: true });
   if (!updated) return { ok: false, code: 'conflict', message: '주문 상태가 이미 변경되었습니다. 다시 시도해주세요.' };
 
   // 배송완료 전이 시 구매 적립 확정 지급 — 멱등({order,type:earn} unique)

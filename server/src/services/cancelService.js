@@ -35,7 +35,7 @@ export async function reverseOrderBenefits(order, session = null) {
 }
 
 // 취소 확정 트랜잭션: CAS 상태 전이 + 혜택 원복 + cancel outbox. null = CAS 패배.
-export async function finalizeCancelTxn(orderId, fromStatuses, { reason = '', refund = null } = {}) {
+export async function finalizeCancelTxn(orderId, fromStatuses, { reason = '', refund = null, actor = 'system' } = {}) {
   return withTransaction(async (session) => {
     const set = { status: 'cancelled' };
     if (reason) set['payment.failReason'] = reason;
@@ -47,7 +47,7 @@ export async function finalizeCancelTxn(orderId, fromStatuses, { reason = '', re
     }
     const order = await Order.findOneAndUpdate(
       { _id: orderId, status: { $in: fromStatuses } },
-      { $set: set },
+      { $set: set, $push: { statusHistory: { status: 'cancelled', at: new Date(), actor, reason } } },
       { new: true, session },
     );
     if (!order) return null;
@@ -90,7 +90,7 @@ export async function cancelOrderSaga(orderId, { actor = 'user', reason = '' } =
         return { outcome: 'payment_in_progress', order };
       }
     }
-    const cancelled = await finalizeCancelTxn(orderId, ['pending'], { reason: reason || '미결제 취소' });
+    const cancelled = await finalizeCancelTxn(orderId, ['pending'], { reason: reason || '미결제 취소', actor });
     if (!cancelled) return cancelOrderSaga(orderId, { actor, reason }); // 경합 — 최신 상태로 재판정
     return { outcome: 'cancelled', order: cancelled };
   }
@@ -102,7 +102,7 @@ export async function cancelOrderSaga(orderId, { actor = 'user', reason = '' } =
   // 실결제 없는 주문(0원·레거시 mock) — PG 없이 로컬 취소
   if (!isPortone || !order.payment?.impUid) {
     const cancelled = await finalizeCancelTxn(orderId, ['paid', 'preparing'], {
-      reason, refund: isPortone ? null : undefined,
+      reason, refund: isPortone ? null : undefined, actor,
     });
     if (!cancelled) return { outcome: 'not_cancellable', order: await Order.findById(orderId) };
     return { outcome: 'cancelled', order: cancelled };
@@ -115,7 +115,7 @@ export async function cancelOrderSaga(orderId, { actor = 'user', reason = '' } =
       status: { $in: ['paid', 'preparing'] },
       $or: [{ 'payment.refund.status': 'none' }, { 'payment.refund.status': null }],
     },
-    { $set: { 'payment.refund.status': 'requested', 'payment.refund.requestedAt': new Date(), 'payment.refund.reason': reason || `${actor} 취소` } },
+    { $set: { 'payment.refund.status': 'requested', 'payment.refund.requestedAt': new Date(), 'payment.refund.reason': reason || `${actor} 취소`, 'payment.refund.actor': actor } },
     { new: true },
   );
   if (!locked) return { outcome: 'payment_in_progress', order: await Order.findById(orderId) };
@@ -140,6 +140,9 @@ async function getPaymentWithFallback(order) {
 
 // refund 락을 쥔 주문의 전액환불 실행. reconciler(Task 11)도 processing 주문에 재사용.
 export async function executeRefund(order) {
+  // 락 시점에 저장해 둔 취소자 — statusHistory actor 복원용. 자동 잡(reconciler)이 이어받아도
+  // 원래 취소자가 남는다. 없으면(오래된 락) 'system'.
+  const actor = order.payment?.refund?.actor || 'system';
   let pmt;
   try {
     pmt = await getPaymentWithFallback(order);
@@ -154,6 +157,7 @@ export async function executeRefund(order) {
     const cancelled = await finalizeCancelTxn(order._id, ['paid', 'preparing'], {
       reason: order.payment.refund?.reason || '환불 완료',
       refund: { status: 'done', cancelAmount: pmt.cancel_amount || pmt.amount },
+      actor,
     });
     return { outcome: 'cancelled', order: cancelled || (await Order.findById(order._id)) };
   }
@@ -168,6 +172,7 @@ export async function executeRefund(order) {
     const cancelled = await finalizeCancelTxn(order._id, ['paid', 'preparing'], {
       reason: order.payment.refund?.reason || '주문 취소',
       refund: { status: 'done', cancelAmount: result?.cancel_amount || remaining },
+      actor,
     });
     return { outcome: 'cancelled', order: cancelled || (await Order.findById(order._id)) };
   } catch (e) {

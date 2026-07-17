@@ -30,6 +30,8 @@ export default function OrdersAdmin() {
   const q = params.get('q') || '';
   const product = params.get('product') || '';
   const refund = params.get('refund') || ''; // 운영 패널에서 review 격리 주문으로 진입
+  const from = params.get('from') || '';
+  const to = params.get('to') || '';
   const page = Math.max(1, parseInt(params.get('page'), 10) || 1);
 
   const [data, setData] = useState({ items: [], total: 0, limit: 30 });
@@ -44,7 +46,7 @@ export default function OrdersAdmin() {
 
   const load = () => {
     setLoading(true);
-    return fetchAdminOrders({ status: status || undefined, q: q || undefined, product: product || undefined, refund: refund || undefined, page })
+    return fetchAdminOrders({ status: status || undefined, q: q || undefined, product: product || undefined, refund: refund || undefined, from: from || undefined, to: to || undefined, page })
       .then(setData)
       .catch(() => setData({ items: [], total: 0, limit: 30 }))
       .finally(() => setLoading(false));
@@ -57,7 +59,7 @@ export default function OrdersAdmin() {
     load();
     loadCounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, q, product, refund, page]);
+  }, [status, q, product, refund, from, to, page]);
 
   const patch = (obj) =>
     setParams((prev) => {
@@ -134,7 +136,7 @@ export default function OrdersAdmin() {
             </button>
           )}
           <button
-            onClick={() => downloadOrdersCsv({ status: status || undefined, q: q || undefined, product: product || undefined, refund: refund || undefined })}
+            onClick={() => downloadOrdersCsv({ status: status || undefined, q: q || undefined, product: product || undefined, refund: refund || undefined, from: from || undefined, to: to || undefined })}
             className="border border-line px-3.5 py-2 text-[13px] hover:border-ink"
           >
             내보내기(CSV)
@@ -172,6 +174,23 @@ export default function OrdersAdmin() {
           />
           <button className="border border-ink px-4 py-2 text-sm hover:bg-tint">검색</button>
         </form>
+        {/* 주문일 범위 — 서버는 createdAt 기준 from/to(KST 경계)를 이미 지원한다. */}
+        <div className="flex items-center gap-1.5 text-[13px] text-mute">
+          <input
+            type="date" value={from} max={to || undefined}
+            onChange={(e) => patch({ from: e.target.value })}
+            className="border border-line px-2 py-2 text-sm focus:border-ink focus:outline-none"
+          />
+          <span>~</span>
+          <input
+            type="date" value={to} min={from || undefined}
+            onChange={(e) => patch({ to: e.target.value })}
+            className="border border-line px-2 py-2 text-sm focus:border-ink focus:outline-none"
+          />
+          {(from || to) && (
+            <button onClick={() => patch({ from: '', to: '' })} className="text-mute hover:text-ink">✕</button>
+          )}
+        </div>
         {product && (
           <button onClick={() => patch({ product: '' })} className="border border-line px-3 py-2 text-[12px] text-mute hover:border-ink">
             상품 필터: {product} ✕

@@ -45,12 +45,16 @@ export async function exportOrdersCsv(req, res) {
     o.shippingAddress?.zipcode || '',
     `${o.shippingAddress?.address1 || ''} ${o.shippingAddress?.address2 || ''}`.trim(),
     itemsSummary(o.items),
+    o.amounts?.itemsTotal ?? '',
+    o.amounts?.couponDiscount || 0,
+    o.amounts?.pointsUsed || 0,
     o.amounts?.grandTotal ?? '',
+    o.pointsEarned || 0,
     o.courier || '',
     o.trackingNumber || '',
   ].map(csvEscape).join(','));
 
-  const header = '주문번호,주문일,상태,주문자,수취인,연락처,우편번호,주소,품목,결제금액,택배사,송장번호';
+  const header = '주문번호,주문일,상태,주문자,수취인,연락처,우편번호,주소,품목,상품합계,쿠폰할인,적립금사용,결제금액,적립예정,택배사,송장번호';
   const lines = [header, ...rows];
   if (truncated) lines.push(csvEscape(`※ ${MAX_ROWS}행 초과 — 기간 필터로 나눠 내려받으세요`));
 

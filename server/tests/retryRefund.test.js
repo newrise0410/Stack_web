@@ -17,6 +17,7 @@ vi.mock('../src/services/portoneService.js', async (orig) => {
 const portone = await import('../src/services/portoneService.js');
 const { createApp } = await import('../src/app.js');
 const { default: Order } = await import('../src/models/Order.js');
+const { cancelOrderSaga } = await import('../src/services/cancelService.js');
 const { createTestUser, authHeader } = await import('./helpers.js');
 
 const app = createApp();
@@ -123,6 +124,26 @@ describe('POST /orders/:id/retry-refund — review 데드락 해소', () => {
     const o = await mkPaidOrder(buyer._id);
     const res = await request(app).post(`/orders/${o._id}/retry-refund`).set(authHeader(buyer));
     expect(res.status).toBe(403);
+  });
+
+  it('실결제 B경로 취소가 statusHistory에 원래 actor를 남긴다 (system 아님)', async () => {
+    const buyer = await createTestUser();
+    // 깨끗한 결제완료 주문(refund none) — 신규 취소가 B경로 락을 잡을 수 있게.
+    const o = await mkPaidOrder(buyer._id, {
+      payment: { provider: 'portone', impUid: 'imp_test', pg: 'html5_inicis', refund: { status: 'none' } },
+    });
+    portone.getPayment.mockResolvedValue({ imp_uid: 'imp_test', status: 'paid', amount: 10000, cancel_amount: 0 });
+    portone.cancel.mockResolvedValue({ cancel_amount: 10000 });
+
+    // 관리자 취소 — executeRefund→finalizeCancelTxn 경유
+    const r = await cancelOrderSaga(o._id, { actor: 'admin', reason: '관리자 직접 취소' });
+    expect(r.outcome).toBe('cancelled');
+
+    const after = await Order.findById(o._id);
+    const last = after.statusHistory.at(-1);
+    expect(last.status).toBe('cancelled');
+    expect(last.actor).toBe('admin'); // ★ B경로에서도 actor 복원 — 'system' 아님
+    expect(after.payment.refund.actor).toBe('admin'); // 락 시점에 영속화됨
   });
 
   it('동시 재시도는 CAS로 직렬화된다 — 한쪽만 진행, portone.cancel 1회', async () => {

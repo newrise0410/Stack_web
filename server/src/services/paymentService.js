@@ -134,6 +134,7 @@ async function applyPaid(pmt, order) {
               'payment.paidAt': pmt.paid_at ? new Date(pmt.paid_at * 1000) : new Date(),
               'payment.receiptUrl': pmt.receipt_url || '',
             },
+            $push: { statusHistory: { status: 'paid', at: new Date(), actor: 'system', reason: '결제 확정' } },
           },
           { new: true, session },
         );

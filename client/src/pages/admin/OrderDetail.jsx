@@ -44,10 +44,15 @@ export default function OrderDetail() {
   }, [id]);
 
   const change = async (next) => {
-    if (next === 'cancelled' && !window.confirm('이 주문을 취소할까요?')) return;
+    const body = { status: next };
+    if (next === 'cancelled') {
+      // 사유 입력(선택) — statusHistory·failReason에 남아 나중에 "왜 취소됐나"를 답한다.
+      const reason = window.prompt('취소 사유를 입력하세요 (선택). 확인을 누르면 취소됩니다.', '');
+      if (reason === null) return; // 프롬프트 취소 = 중단
+      if (reason.trim()) body.reason = reason.trim();
+    }
     setBusy(true);
     try {
-      const body = { status: next };
       if (next === 'shipped') {
         if (!tracking.trim()) {
           toast.error('송장번호를 입력해주세요.');
@@ -157,14 +162,47 @@ export default function OrderDetail() {
             </li>
           ))}
         </ul>
-        <div className="mt-3 flex justify-between text-sm">
-          <span className="text-mute">배송비</span>
-          <span>{o.amounts.shippingFee === 0 ? '무료' : `${won(o.amounts.shippingFee)}원`}</span>
+        {/* 금액 분해 — 결제금액이 상품합계와 다른 이유(쿠폰·적립금)를 CS가 즉시 답할 수 있게. */}
+        <div className="mt-3 space-y-1 text-sm">
+          <div className="flex justify-between">
+            <span className="text-mute">상품 합계</span>
+            {/* 레거시 주문(itemsTotal 없음)은 아이템 스냅샷 합으로 폴백 — '상품 0원' 오표시 방지. */}
+            <span>{won(o.amounts.itemsTotal ?? o.items.reduce((s, i) => s + i.price * i.qty, 0))}원</span>
+          </div>
+          {o.amounts.couponDiscount > 0 && (
+            <div className="flex justify-between text-sale">
+              <span>쿠폰 할인{o.coupon?.code ? ` (${o.coupon.code})` : ''}</span>
+              <span>-{won(o.amounts.couponDiscount)}원</span>
+            </div>
+          )}
+          {/* free_shipping 쿠폰은 couponDiscount=0이라 위 행에 안 잡힌다 — 코드가 있으면 별도 표시. */}
+          {o.coupon?.code && o.amounts.couponDiscount === 0 && (
+            <div className="flex justify-between text-sale">
+              <span>적용 쿠폰 ({o.coupon.code})</span>
+              <span>{o.coupon.discount > 0 ? `-${won(o.coupon.discount)}원` : '배송비 무료'}</span>
+            </div>
+          )}
+          {o.amounts.pointsUsed > 0 && (
+            <div className="flex justify-between text-sale">
+              <span>적립금 사용</span>
+              <span>-{won(o.amounts.pointsUsed)}원</span>
+            </div>
+          )}
+          <div className="flex justify-between">
+            <span className="text-mute">배송비</span>
+            <span>{o.amounts.shippingFee === 0 ? '무료' : `${won(o.amounts.shippingFee)}원`}</span>
+          </div>
         </div>
-        <div className="mt-1 flex justify-between font-bold">
+        <div className="mt-2 flex justify-between border-t border-line pt-2 font-bold">
           <span>결제금액</span>
           <span>{won(o.amounts.grandTotal)}원</span>
         </div>
+        {o.pointsEarned > 0 && (
+          <div className="mt-1 flex justify-between text-[12px] text-mute">
+            <span>적립 예정</span>
+            <span>{won(o.pointsEarned)}P {o.status === 'delivered' ? '(지급 완료)' : '(배송완료 시 지급)'}</span>
+          </div>
+        )}
         {o.payment?.impUid && (
           <div className="mt-1 flex justify-between text-[12px] text-mute">
             <span>결제(포트원)</span>
@@ -174,6 +212,18 @@ export default function OrderDetail() {
                 <a href={o.payment.receiptUrl} target="_blank" rel="noreferrer" className="ml-2 underline-offset-2 hover:underline">영수증</a>
               )}
             </span>
+          </div>
+        )}
+        {o.payment?.paidAt && (
+          <div className="mt-1 flex justify-between text-[12px] text-mute">
+            <span>결제 시각</span>
+            <span>{o.payment.paidAt.slice(0, 16).replace('T', ' ')}</span>
+          </div>
+        )}
+        {o.payment?.failReason && (
+          <div className="mt-1 flex justify-between text-[12px] text-sale">
+            <span>취소·실패 사유</span>
+            <span className="max-w-[60%] text-right">{o.payment.failReason}</span>
           </div>
         )}
       </section>
@@ -222,6 +272,25 @@ export default function OrderDetail() {
               );
             })}
           </div>
+        </section>
+      )}
+
+      {/* 상태 이력 — 누가 언제 왜 바꿨나. 이 필드 도입 이전 주문은 비어 있을 수 있다. */}
+      {o.statusHistory?.length > 0 && (
+        <section className="mt-8 border-t border-line pt-6">
+          <h2 className="mb-3 font-semibold">상태 이력</h2>
+          <ol className="space-y-2 text-sm">
+            {o.statusHistory.map((h, i) => (
+              <li key={i} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                <span className="w-32 shrink-0 text-[12px] text-mute">{h.at?.slice(0, 16).replace('T', ' ')}</span>
+                <span className="font-medium">{ORDER_STATUS_LABEL[h.status] || h.status}</span>
+                <span className="text-[12px] text-faint">
+                  {({ admin: '관리자', user: '고객', system: '시스템' })[h.actor] || h.actor}
+                  {h.reason ? ` · ${h.reason}` : ''}
+                </span>
+              </li>
+            ))}
+          </ol>
         </section>
       )}
     </div>
