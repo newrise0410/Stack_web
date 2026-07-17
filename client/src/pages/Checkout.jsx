@@ -248,7 +248,12 @@ export default function Checkout() {
       // 3) 서버 검증 — 성공 판정은 서버만 한다
       try {
         const d = await completePayment(rsp.imp_uid);
-        return finishPaid(d.order);
+        if (d?.order && ['paid', 'already_paid'].includes(d.outcome)) {
+          return finishPaid(d.order);
+        }
+        // 202(ready) 등 — 아직 서버가 결제를 확정하지 않음. 컨텍스트를 지우지 않고 재확인 유도.
+        setErr(d?.message || '결제 확인이 지연되고 있습니다. 잠시 후 마이페이지에서 주문 상태를 확인해주세요.');
+        return undefined;
       } catch (ve) {
         if (!ve.response) {
           // 네트워크 유실 — 주문을 취소하지 않는다(웹훅/재확인이 확정할 수 있음)
