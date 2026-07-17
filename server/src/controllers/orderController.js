@@ -5,6 +5,7 @@ import UserCoupon from '../models/UserCoupon.js';
 import { sendOrderPlaced, sendOrderStatus } from '../services/emailService.js';
 import { validateCoupon, computeCoupon } from '../services/couponService.js';
 import { applyPoints, EARN_RATE } from '../services/pointService.js';
+import { adjustSales } from '../services/salesService.js';
 import PointTransaction from '../models/PointTransaction.js';
 
 const SHIPPING_FEE = 3000;
@@ -21,18 +22,6 @@ function genOrderNumber() {
 
 const MAX_ITEM_KINDS = 50; // 한 주문의 상품 종류 상한
 const MAX_QTY = 99; // 품목당 수량 상한
-
-// 판매량(salesCount) 가감. sign=+1 주문, -1 취소.
-async function adjustSales(items, sign) {
-  if (!items?.length) return;
-  await Product.bulkWrite(
-    items
-      .filter((i) => i.product)
-      .map((i) => ({
-        updateOne: { filter: { _id: i.product }, update: { $inc: { salesCount: sign * i.qty } } },
-      })),
-  );
-}
 
 // 취소 시 혜택 원복 — 쿠폰 복구 + 적립금(사용분 환급·적립분 회수).
 // 멱등(refund/reclaim 원장 존재 시 재실행 안 함)하므로 부분 실패 후 안전하게 재수렴 가능.
