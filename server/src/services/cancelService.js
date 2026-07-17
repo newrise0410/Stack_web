@@ -172,7 +172,6 @@ _setCancelHooks({
       { _id: order._id },
       { $set: { 'payment.impUid': pmt.imp_uid, 'payment.refund.status': 'processing', 'payment.refund.reason': '취소 후 늦은 승인 자동환불', 'payment.refund.requestedAt': new Date() } },
     );
-    const fresh = await Order.findById(order._id);
     try {
       await portone.cancel({ impUid: pmt.imp_uid, amount: pmt.amount, checksum: pmt.amount, reason: '주문 취소 후 승인된 결제 자동환불' });
       await Order.updateOne({ _id: order._id }, { $set: { 'payment.refund.status': 'done', 'payment.refund.completedAt': new Date(), 'payment.refund.cancelAmount': pmt.amount } });

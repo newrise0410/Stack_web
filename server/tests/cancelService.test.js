@@ -119,4 +119,17 @@ describe('cancelOrderSaga — paid(B 경로)', () => {
     expect(r.outcome).toBe('cancelled');
     expect(portone.cancel).not.toHaveBeenCalled();
   });
+
+  it('환불 확정 거절(PortoneError) — 주문 paid 유지 + review 격리', async () => {
+    const { PortoneError } = await vi.importActual('../src/services/portoneService.js');
+    const user = await createTestUser();
+    const order = await makePaid(user);
+    portone.getPayment.mockResolvedValue({ imp_uid: order.payment.impUid, merchant_uid: order.orderNumber, status: 'paid', amount: 12500, cancel_amount: 0, currency: 'KRW' });
+    portone.cancel.mockRejectedValue(new PortoneError('취소 가능 금액 초과'));
+    const r = await cancelOrderSaga(order._id, { actor: 'user' });
+    expect(r.outcome).toBe('review');
+    const saved = await Order.findById(order._id);
+    expect(saved.status).toBe('paid');
+    expect(saved.payment.refund.status).toBe('review');
+  });
 });

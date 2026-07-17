@@ -12,7 +12,7 @@ import { httpError } from '../utils/httpError.js';
 import { enqueueEvents, buildPaidEvents } from '../services/orderEventService.js';
 import { ensurePrepared } from '../services/checkoutService.js';
 import * as portone from '../services/portoneService.js';
-import { cancelOrderSaga, reverseOrderBenefits, finalizeCancelTxn } from '../services/cancelService.js';
+import { cancelOrderSaga, finalizeCancelTxn } from '../services/cancelService.js';
 
 const SHIPPING_FEE = 3000;
 const FREE_SHIPPING_THRESHOLD = 50000; // 5만원 이상 무료배송
