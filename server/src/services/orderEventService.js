@@ -5,6 +5,7 @@ import { adjustSales } from './salesService.js';
 import { sendOrderPlaced, sendOrderStatus } from './emailService.js';
 
 const MAX_ATTEMPTS = 5;
+const STALE_PROCESSING_MS = 5 * 60 * 1000; // claim 후 이 시간 넘게 processing이면 워커 크래시로 간주하고 재큐
 
 // paid 확정 시 예약할 부수효과. payload에 수신자 스냅샷을 넣는다 — 웹훅/잡 경로엔 req.user가 없다.
 export function buildPaidEvents(order, user) {
@@ -71,6 +72,12 @@ async function runEvent(event) {
 // pending 이벤트를 CAS로 claim해 순차 실행. 반환: 처리 시도 건수.
 // 실행 성공→done, 실패→attempts+1 후 pending 복귀(MAX_ATTEMPTS 도달 시 failed).
 export async function processPendingEvents(limit = 20) {
+  // claim 후 크래시로 고아가 된 processing 이벤트를 재큐 — attempts는 claim 시 증가했으므로
+  // 반복 크래시는 MAX_ATTEMPTS에서 failed로 수렴한다. uniqueKey 덕에 재실행해도 exactly-once 유지.
+  await OrderEvent.updateMany(
+    { status: 'processing', updatedAt: { $lt: new Date(Date.now() - STALE_PROCESSING_MS) } },
+    { $set: { status: 'pending' } },
+  );
   let processed = 0;
   for (let i = 0; i < limit; i += 1) {
     const event = await OrderEvent.findOneAndUpdate(

@@ -60,6 +60,41 @@ describe('runPaymentJobsCycle', () => {
     expect(saved.payment.refund.status).toBe('done');
   });
 
+  it('cancelled + refund processing → 이미 전액취소 상태면 refund done', async () => {
+    const user = await createTestUser();
+    const order = await makeOrder(user, {
+      status: 'cancelled',
+      payment: {
+        provider: 'portone', method: 'card', impUid: `imp_lp${seq}`,
+        refund: { status: 'processing', reason: '취소 후 늦은 승인 자동환불', requestedAt: new Date() },
+      },
+    });
+    portone.getPayment.mockResolvedValue({ imp_uid: order.payment.impUid, merchant_uid: order.orderNumber, status: 'cancelled', amount: 13000, cancel_amount: 13000, currency: 'KRW' });
+    await runPaymentJobsCycle();
+    const saved = await Order.findById(order._id);
+    expect(saved.status).toBe('cancelled'); // 로컬 상태는 그대로
+    expect(saved.payment.refund.status).toBe('done');
+    expect(portone.cancel).not.toHaveBeenCalled();
+  });
+
+  it('cancelled + refund processing → 아직 paid 상태면 잔액 취소 후 refund done', async () => {
+    const user = await createTestUser();
+    const order = await makeOrder(user, {
+      status: 'cancelled',
+      payment: {
+        provider: 'portone', method: 'card', impUid: `imp_lp${seq}`,
+        refund: { status: 'processing', reason: '취소 후 늦은 승인 자동환불', requestedAt: new Date() },
+      },
+    });
+    portone.getPayment.mockResolvedValue({ imp_uid: order.payment.impUid, merchant_uid: order.orderNumber, status: 'paid', amount: 13000, cancel_amount: 0, currency: 'KRW' });
+    portone.cancel.mockResolvedValue({ status: 'cancelled', cancel_amount: 13000 });
+    await runPaymentJobsCycle();
+    const saved = await Order.findById(order._id);
+    expect(saved.status).toBe('cancelled');
+    expect(saved.payment.refund.status).toBe('done');
+    expect(portone.cancel).toHaveBeenCalledWith(expect.objectContaining({ impUid: order.payment.impUid, amount: 13000, checksum: 13000 }));
+  });
+
   it('만료 안 된 pending은 건드리지 않는다', async () => {
     const user = await createTestUser();
     const order = await makeOrder(user, { payment: { provider: 'portone', prepareStatus: 'prepared', expiresAt: new Date(Date.now() + 60_000) } });

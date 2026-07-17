@@ -160,26 +160,63 @@ export async function executeRefund(order) {
   }
 }
 
+// 취소된(status='cancelled') 주문에 남은 processing 환불을 재조회로 수렴.
+// onLatePaid의 최초 시도와 reconciler(paymentJobs)의 재시도가 이 로직을 공유한다.
+// executeRefund와 달리 CAS 대상이 없다 — 로컬 상태는 이미 cancelled로 확정돼 있고
+// payment.refund.status 필드만 갱신한다.
+export async function reconcileLateRefund(order) {
+  const impUid = order.payment?.impUid;
+  if (!impUid) return { outcome: 'skip' };
+
+  let pmt;
+  try {
+    pmt = await portone.getPayment(impUid);
+  } catch (e) {
+    // 조회 실패 — processing 유지, 다음 사이클에 재시도
+    return { outcome: 'refund_pending' };
+  }
+
+  const remaining = (pmt.amount || 0) - (pmt.cancel_amount || 0);
+  if (remaining <= 0) {
+    // 이미 전액 취소돼 있음 — 로컬 수렴만
+    await Order.updateOne(
+      { _id: order._id },
+      { $set: { 'payment.refund.status': 'done', 'payment.refund.completedAt': new Date(), 'payment.refund.cancelAmount': pmt.cancel_amount || pmt.amount } },
+    );
+    return { outcome: 'done' };
+  }
+
+  try {
+    const result = await portone.cancel({ impUid, amount: remaining, checksum: remaining, reason: '취소 후 늦은 승인 자동환불' });
+    await Order.updateOne(
+      { _id: order._id },
+      { $set: { 'payment.refund.status': 'done', 'payment.refund.completedAt': new Date(), 'payment.refund.cancelAmount': result?.cancel_amount || remaining } },
+    );
+    return { outcome: 'done' };
+  } catch (e) {
+    if (e instanceof portone.PortoneUnknownError) {
+      // 결과 불명 — 상태 변경 금지, reconciler가 재조회로 수렴
+      return { outcome: 'refund_pending' };
+    }
+    console.error('[cancel] 늦은승인 환불 거절:', order.orderNumber, e?.message);
+    await Order.updateOne({ _id: order._id }, { $set: { 'payment.refund.status': 'review', 'payment.refund.reason': `환불 실패: ${String(e?.message || '').slice(0, 100)}` } });
+    return { outcome: 'review' };
+  }
+}
+
 // paymentService의 취소 콜백 주입(순환 의존 회피 지점)
 _setCancelHooks({
   // 미결제/실패/외부취소 pending 주문 정리
   onCancelPending: async (order, reason) => {
     await finalizeCancelTxn(order._id, ['pending', 'paid'], { reason });
   },
-  // 로컬 취소 후 늦은 승인 발견 — 자동 전액환불 기동
+  // 로컬 취소 후 늦은 승인 발견 — 자동 전액환불 기동(reconcileLateRefund와 로직 공유)
   onLatePaid: async (order, pmt) => {
-    await Order.updateOne(
+    const updated = await Order.findOneAndUpdate(
       { _id: order._id },
       { $set: { 'payment.impUid': pmt.imp_uid, 'payment.refund.status': 'processing', 'payment.refund.reason': '취소 후 늦은 승인 자동환불', 'payment.refund.requestedAt': new Date() } },
+      { new: true },
     );
-    try {
-      await portone.cancel({ impUid: pmt.imp_uid, amount: pmt.amount, checksum: pmt.amount, reason: '주문 취소 후 승인된 결제 자동환불' });
-      await Order.updateOne({ _id: order._id }, { $set: { 'payment.refund.status': 'done', 'payment.refund.completedAt': new Date(), 'payment.refund.cancelAmount': pmt.amount } });
-    } catch (e) {
-      if (!(e instanceof portone.PortoneUnknownError)) {
-        await Order.updateOne({ _id: order._id }, { $set: { 'payment.refund.status': 'review' } });
-      }
-      // Unknown이면 processing 유지 — reconciler가 수렴
-    }
+    await reconcileLateRefund(updated);
   },
 });

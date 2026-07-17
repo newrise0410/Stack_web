@@ -1,7 +1,7 @@
 import Order from '../models/Order.js';
 import * as portone from './portoneService.js';
 import { verifyAndCompletePayment } from './paymentService.js';
-import { finalizeCancelTxn, executeRefund } from './cancelService.js';
+import { finalizeCancelTxn, executeRefund, reconcileLateRefund } from './cancelService.js';
 import { processPendingEvents } from './orderEventService.js';
 
 const BATCH = 20;
@@ -49,20 +49,30 @@ async function sweepStalePending() {
   return handled;
 }
 
-// 결과 불명(processing)·잠긴 지 오래된(requested) 환불을 재조회로 수렴
+// 결과 불명(processing)·잠긴 지 오래된(requested) 환불을 재조회로 수렴.
+// cancelled 주문의 늦은승인 환불(onLatePaid가 남긴 processing)도 함께 스캔 —
+// 그렇지 않으면 로컬 status가 이미 'cancelled'라 위 paid/preparing 쿼리에 걸리지 않고 영구 누락된다.
 async function reconcileRefunds() {
   const orders = await Order.find({
-    status: { $in: ['paid', 'preparing'] },
     'payment.provider': 'portone',
     $or: [
-      { 'payment.refund.status': 'processing' },
-      { 'payment.refund.status': 'requested', 'payment.refund.requestedAt': { $lt: new Date(Date.now() - REFUND_RETRY_AFTER_MS) } },
+      { status: { $in: ['paid', 'preparing'] }, 'payment.refund.status': 'processing' },
+      {
+        status: { $in: ['paid', 'preparing'] },
+        'payment.refund.status': 'requested',
+        'payment.refund.requestedAt': { $lt: new Date(Date.now() - REFUND_RETRY_AFTER_MS) },
+      },
+      { status: 'cancelled', 'payment.refund.status': 'processing' },
     ],
   }).limit(BATCH);
   let handled = 0;
   for (const order of orders) {
     try {
-      await executeRefund(order); // 이미 전액취소면 마무리, 아니면 재시도/processing 유지/review
+      if (order.status === 'cancelled') {
+        await reconcileLateRefund(order); // 늦은승인 환불 재시도/수렴
+      } else {
+        await executeRefund(order); // 이미 전액취소면 마무리, 아니면 재시도/processing 유지/review
+      }
       handled += 1;
     } catch (e) {
       logErr('refund-item', e);
@@ -72,11 +82,16 @@ async function reconcileRefunds() {
 }
 
 let timer = null;
+let cycleRunning = false; // in-flight 가드 — 느린 사이클이 다음 사이클과 겹쳐 같은 주문에 중복 실행되는 것 방지
 
 export function startPaymentJobs({ intervalMs = 60_000 } = {}) {
   if (timer) return;
   timer = setInterval(() => {
-    runPaymentJobsCycle().catch((e) => logErr('cycle', e));
+    if (cycleRunning) return;
+    cycleRunning = true;
+    runPaymentJobsCycle()
+      .catch((e) => logErr('cycle', e))
+      .finally(() => { cycleRunning = false; });
   }, intervalMs);
   timer.unref?.(); // 종료를 막지 않게
   console.log(`payment jobs 시작 (interval ${intervalMs / 1000}s)`);
