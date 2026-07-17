@@ -12,6 +12,7 @@ import AdminLayout from './components/admin/AdminLayout.jsx';
 import Dashboard from './pages/admin/Dashboard.jsx';
 import OrdersAdmin from './pages/admin/OrdersAdmin.jsx';
 import OrderDetail from './pages/admin/OrderDetail.jsx';
+import Production from './pages/admin/Production.jsx';
 import ProductsAdmin from './pages/admin/ProductsAdmin.jsx';
 import MembersAdmin from './pages/admin/MembersAdmin.jsx';
 import MemberDetail from './pages/admin/MemberDetail.jsx';
@@ -75,6 +76,7 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="orders" element={<OrdersAdmin />} />
         <Route path="orders/:id" element={<OrderDetail />} />
+        <Route path="production" element={<Production />} />
         <Route path="products" element={<ProductsAdmin />} />
         <Route path="members" element={<MembersAdmin />} />
         <Route path="members/:id" element={<MemberDetail />} />

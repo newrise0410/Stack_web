@@ -4,6 +4,7 @@ import { useAuth } from '../../lib/auth.jsx';
 const NAV = [
   { to: '/admin', label: '대시보드', end: true },
   { to: '/admin/orders', label: '주문' },
+  { to: '/admin/production', label: '제작' },
   { to: '/admin/products', label: '상품' },
   { to: '/admin/members', label: '회원' },
   { to: '/admin/reviews', label: '리뷰' },
@@ -16,7 +17,7 @@ export default function AdminLayout() {
   const { user } = useAuth();
   return (
     <div className="min-h-screen bg-paper">
-      <header className="flex items-center justify-between border-b border-line px-5 py-3">
+      <header className="flex items-center justify-between border-b border-line px-5 py-3 print:hidden">
         <Link to="/" className="text-sm font-extrabold tracking-tight">
           STACK N' STAK · 관리자
         </Link>
@@ -28,7 +29,7 @@ export default function AdminLayout() {
 
       <div className="mx-auto flex max-w-[1280px] gap-8 px-5 py-8">
         {/* 데스크톱 사이드바 */}
-        <nav className="hidden w-40 shrink-0 flex-col md:flex">
+        <nav className="hidden w-40 shrink-0 flex-col md:flex print:hidden">
           {NAV.map((n) => (
             <NavLink
               key={n.to}
