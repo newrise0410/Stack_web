@@ -3,6 +3,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import * as orderController from '../controllers/orderController.js';
+import * as orderBulkController from '../controllers/orderBulkController.js';
 
 const router = Router();
 
@@ -13,6 +14,9 @@ router.post(
   asyncHandler(orderController.createOrder),
 );
 router.get('/', requireAuth, asyncHandler(orderController.listMyOrders));
+// 일괄 처리 (:id 라우트보다 먼저)
+router.post('/bulk/status', requireAuth, requireAdmin, asyncHandler(orderBulkController.bulkStatus));
+router.post('/bulk/tracking', requireAuth, requireAdmin, asyncHandler(orderBulkController.bulkTracking));
 // 관리용 (:id 보다 먼저)
 router.get('/admin', requireAuth, requireAdmin, asyncHandler(orderController.listAllOrders));
 router.post('/:id/cancel', requireAuth, asyncHandler(orderController.cancelOrder));
