@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import Order from '../models/Order.js';
 import Product from '../models/Product.js';
 import Coupon from '../models/Coupon.js';
@@ -7,9 +8,17 @@ import { validateCoupon, computeCoupon } from '../services/couponService.js';
 import { applyPoints, EARN_RATE } from '../services/pointService.js';
 import { adjustSales } from '../services/salesService.js';
 import PointTransaction from '../models/PointTransaction.js';
+import { withTransaction } from '../utils/withTransaction.js';
+import { httpError } from '../utils/httpError.js';
+import { enqueueEvents, buildPaidEvents } from '../services/orderEventService.js';
+import { ensurePrepared } from '../services/checkoutService.js';
+import * as portone from '../services/portoneService.js';
 
 const SHIPPING_FEE = 3000;
 const FREE_SHIPPING_THRESHOLD = 50000; // 5만원 이상 무료배송
+const MIN_CARD_AMOUNT = 100; // 카드 최소 결제금액(원)
+const PENDING_TTL_MS = 30 * 60 * 1000; // 미결제 pending 만료
+const MAX_ACTIVE_PENDING = 3; // 사용자별 활성 pending 상한
 
 // YYYYMMDD-XXXXXX
 function genOrderNumber() {
@@ -54,6 +63,9 @@ async function reverseOrderBenefits(order) {
 
 // 주문 생성 — POST /orders (requireAuth)
 // 클라가 보낸 가격은 무시하고 서버가 DB 상품가로 합계를 재계산한다.
+// 주문 insert + 쿠폰 소진 + 포인트 차감을 한 트랜잭션으로 묶고(부분 실패 없음),
+// grandTotal>0이면 status:'pending'으로 만들어 포트원 사전등록 후 결제창 DTO를 반환한다.
+// grandTotal===0(포인트 전액)이면 PG 없이 즉시 paid.
 export async function createOrder(req, res) {
   const { items, shippingAddress } = req.body;
 
@@ -67,15 +79,27 @@ export async function createOrder(req, res) {
     return res.status(400).json({ message: '배송지 정보를 입력해주세요.' });
   }
 
-  // 멱등키(재시도 방어): 같은 사용자+키의 주문이 이미 있으면 부작용 없이 그 주문을 반환한다.
-  // (응답 유실 후 동일 요청 재시도 시 중복 주문·중복 적립/판매 방지 — 부작용 실행 전에 선차단)
+  // 결제 주문은 멱등키 필수 — 결제창·검증·재시도 전 구간의 기준 키.
   const idempotencyKey = String(req.get('Idempotency-Key') || req.body.idempotencyKey || '').trim().slice(0, 100) || null;
-  if (idempotencyKey) {
-    const existing = await Order.findOne({ user: req.user._id, idempotencyKey });
-    if (existing) return res.status(200).json(existing);
+  if (!idempotencyKey) {
+    return res.status(400).json({ message: '멱등키(Idempotency-Key)가 필요합니다. 새로고침 후 다시 시도해주세요.' });
   }
 
-  // 항목 정규화 + 검증 (null·타입오염 방지, 수량 상한)
+  // 같은 키 + 다른 본문 재사용 감지용 해시
+  const requestHash = crypto.createHash('sha256')
+    .update(JSON.stringify({ items, couponCode: req.body.couponCode || '', pointsToUse: req.body.pointsToUse || 0, shippingAddress }))
+    .digest('hex');
+
+  const existing = await Order.findOne({ user: req.user._id, idempotencyKey });
+  if (existing) return respondExistingOrder(res, existing, requestHash);
+
+  // 미결제 pending 폭주 방지(쿠폰·포인트 잠금 남용 차단)
+  const activePending = await Order.countDocuments({ user: req.user._id, status: 'pending', 'payment.provider': 'portone' });
+  if (activePending >= MAX_ACTIVE_PENDING) {
+    return res.status(429).json({ message: '결제가 완료되지 않은 주문이 많습니다. 마이페이지에서 정리 후 다시 시도해주세요.' });
+  }
+
+  // 항목 정규화 + 검증 (기존과 동일)
   const cleanItems = [];
   for (const it of items) {
     if (!it || typeof it.slug !== 'string') {
@@ -88,39 +112,31 @@ export async function createOrder(req, res) {
     });
   }
 
-  // status:'active' 인 상품만 주문 가능 (품절/미공개/보관 상품 차단)
-  const products = await Product.find({
-    slug: { $in: cleanItems.map((i) => i.slug) },
-    status: 'active',
-  });
+  const products = await Product.find({ slug: { $in: cleanItems.map((i) => i.slug) }, status: 'active' });
   const bySlug = new Map(products.map((p) => [p.slug, p]));
 
   const orderItems = [];
   for (const it of cleanItems) {
     const p = bySlug.get(it.slug);
-    if (!p) {
-      return res.status(400).json({ message: `현재 구매할 수 없는 상품이 있습니다: ${it.slug}` });
-    }
-    // 옵션이 있는 상품은 유효 옵션을 반드시 지정해야 한다(누락·비유효 모두 거절)
+    if (!p) return res.status(400).json({ message: `현재 구매할 수 없는 상품이 있습니다: ${it.slug}` });
     if (p.options.length > 0 && (!it.option || !p.options.includes(it.option))) {
       return res.status(400).json({ message: `옵션을 선택해주세요: ${p.nameKo || p.name}` });
     }
     orderItems.push({
-      product: p._id,
-      slug: p.slug,
-      name: p.name,
-      nameKo: p.nameKo,
-      image: p.images?.[0],
-      option: it.option || null,
-      price: p.price, // ← 서버 권위 가격
-      qty: it.qty,
+      product: p._id, slug: p.slug, name: p.name, nameKo: p.nameKo,
+      image: p.images?.[0], option: it.option || null, price: p.price, qty: it.qty,
     });
+  }
+
+  // 금액 안전성 — KRW 정수만
+  if (!orderItems.every((i) => Number.isSafeInteger(i.price) && i.price > 0)) {
+    return res.status(400).json({ message: '상품 가격 정보에 문제가 있습니다. 관리자에게 문의해주세요.' });
   }
 
   const itemsTotal = orderItems.reduce((s, i) => s + i.price * i.qty, 0);
   const baseShipping = itemsTotal >= FREE_SHIPPING_THRESHOLD ? 0 : SHIPPING_FEE;
 
-  // 쿠폰 적용 (서버 권위). 소비는 아래에서 원자적으로 선점한다.
+  // 쿠폰 검증(소비는 트랜잭션 안에서)
   const couponCode = String(req.body.couponCode || '').trim().toUpperCase();
   let couponDoc = null;
   let couponResult = { itemDiscount: 0, shippingFee: baseShipping, discountTotal: 0 };
@@ -135,141 +151,160 @@ export async function createOrder(req, res) {
   const shippingFee = couponResult.shippingFee;
   const payableBeforePoints = Math.max(0, itemsTotal - couponDiscount + shippingFee);
 
-  // 쿠폰 원자적 선점 (1인 1회) — 주문 생성 전에 소비 확정.
-  // 보유·미사용이면 used로, 미보유면 upsert 생성하며 used. 이미 used면 unique 위반(11000) → 거절.
-  let consumedUserCoupon = null;
-  if (couponDoc) {
-    try {
-      consumedUserCoupon = await UserCoupon.findOneAndUpdate(
-        { user: req.user._id, coupon: couponDoc._id, used: false },
-        { $set: { used: true, usedAt: new Date() }, $setOnInsert: { issuedBy: 'self' } },
-        { new: true, upsert: true },
-      );
-    } catch (e) {
-      if (e.code === 11000) {
-        // 동시 중복요청(같은 멱등키)에서 쿠폰 선점 패자가 여기 도달할 수 있다. 승자 주문이 이미
-        // 있으면 '이미 사용한 쿠폰' 400 대신 그 주문으로 멱등 수렴시킨다(초입 findOne을 이 경합
-        // 지점에도 복제). 아직 승자 주문 생성 전인 좁은 창이면 400이 나가되, 재시도 시 초입에서 수렴.
-        if (idempotencyKey) {
-          const existing = await Order.findOne({ user: req.user._id, idempotencyKey });
-          if (existing) return res.status(200).json(existing);
-        }
-        return res.status(400).json({ message: '이미 사용한 쿠폰입니다.' });
-      }
-      throw e;
-    }
-  }
-
-  // 적립금 사용 — 결제금액 이내로 요청 클램프 후 "먼저 원자적으로 차감"하고 실제 차감액을 확정.
-  // 스테일 잔액에 의존하지 않아 동시 주문 오버스펜드가 없다(applyPoints가 0까지만 차감).
+  // 포인트 사용 요청 클램프 + 카드 최소금액 규칙(0원 또는 100원 이상)
   const requestedPoints = Math.min(Math.max(0, parseInt(req.body.pointsToUse, 10) || 0), payableBeforePoints);
-  let pointsUsed = 0;
-  let spendTxnId = null;
-  if (requestedPoints > 0) {
-    try {
-      const r = await applyPoints(req.user._id, -requestedPoints, 'spend', { note: '주문 적립금 사용' });
-      if (r) { pointsUsed = -r.amount; spendTxnId = r.txnId; } // r.amount는 음수(실제 차감분)
-    } catch {
-      pointsUsed = 0; /* 차감 실패 시 미사용 처리 */
-    }
+  const remainderPreview = payableBeforePoints - requestedPoints;
+  if (remainderPreview > 0 && remainderPreview < MIN_CARD_AMOUNT) {
+    return res.status(400).json({ message: `카드 결제 최소 금액(${MIN_CARD_AMOUNT}원) 미만입니다. 적립금 사용액을 조정해주세요.` });
   }
-  const grandTotal = Math.max(0, payableBeforePoints - pointsUsed);
-  const pointsEarned = Math.floor(grandTotal * EARN_RATE); // 결제액의 3% 적립 예정
 
-  const payload = {
-    user: req.user._id,
-    items: orderItems,
-    shippingAddress: {
-      recipient: shippingAddress.recipient,
-      phone: shippingAddress.phone,
-      zipcode: shippingAddress.zipcode,
-      address1: shippingAddress.address1,
-      address2: shippingAddress.address2,
-      deliveryMemo: shippingAddress.deliveryMemo,
-    },
-    amounts: { itemsTotal, couponDiscount, shippingFee, pointsUsed, grandTotal },
-    coupon: { code: couponDoc ? couponCode : '', discount: couponResult.discountTotal },
-    pointsEarned,
-    idempotencyKey,
-    status: 'paid', // mock 결제 즉시 완료
-    paymentMethod: 'mock',
-  };
-
-  // 이 요청이 선차감/선점한 혜택을 원복한다(주문 생성 실패·중복 감지 공통 정리)
-  const refundReservedBenefits = async (note) => {
-    if (consumedUserCoupon) {
-      await UserCoupon.updateOne({ _id: consumedUserCoupon._id }, { used: false, usedAt: null }).catch(() => {});
-    }
-    if (pointsUsed > 0) {
-      await applyPoints(req.user._id, pointsUsed, 'refund', { note }).catch(() => {});
-      if (spendTxnId) await PointTransaction.deleteOne({ _id: spendTxnId }).catch(() => {});
-    }
-  };
-
-  // 주문번호 랜덤 충돌(E11000) 시 재시도
+  // ── 생성 트랜잭션: 주문 insert + 쿠폰 소진(usedOrder 연결) + 포인트 차감 ──
+  const orderId = new Order.base.Types.ObjectId();
   let order;
   try {
     for (let attempt = 0; attempt < 4; attempt += 1) {
       try {
-        order = await Order.create({ ...payload, orderNumber: genOrderNumber() });
+        order = await withTransaction(async (session) => {
+          // 포인트 선차감(잔액 클램프 반영량이 확정 금액) — 같은 트랜잭션이라 실패 시 자동 원복
+          let pointsUsed = 0;
+          if (requestedPoints > 0) {
+            const r = await applyPoints(req.user._id, -requestedPoints, 'spend', {
+              order: orderId, note: '주문 적립금 사용', session,
+            });
+            if (r) pointsUsed = -r.amount;
+          }
+          const grandTotal = Math.max(0, payableBeforePoints - pointsUsed);
+          if (grandTotal > 0 && grandTotal < MIN_CARD_AMOUNT) {
+            throw httpError(400, '적립금 잔액이 변동되어 결제 금액이 카드 최소 금액 미만이 되었습니다. 다시 시도해주세요.');
+          }
+
+          // 쿠폰 원자적 소진 + usedOrder 즉시 연결(원자성 — 복구는 usedOrder 기준)
+          if (couponDoc) {
+            await UserCoupon.findOneAndUpdate(
+              { user: req.user._id, coupon: couponDoc._id, used: false },
+              { $set: { used: true, usedAt: new Date(), usedOrder: orderId }, $setOnInsert: { issuedBy: 'self' } },
+              { new: true, upsert: true, session },
+            );
+          }
+
+          const zeroAmount = grandTotal === 0;
+          const now = new Date();
+          const [created] = await Order.create([{
+            _id: orderId,
+            orderNumber: genOrderNumber(),
+            user: req.user._id,
+            items: orderItems,
+            shippingAddress: {
+              recipient: shippingAddress.recipient, phone: shippingAddress.phone,
+              zipcode: shippingAddress.zipcode, address1: shippingAddress.address1,
+              address2: shippingAddress.address2, deliveryMemo: shippingAddress.deliveryMemo,
+            },
+            amounts: { itemsTotal, couponDiscount, shippingFee, pointsUsed, grandTotal },
+            coupon: { code: couponDoc ? couponCode : '', discount: couponResult.discountTotal },
+            pointsEarned: Math.floor(grandTotal * EARN_RATE),
+            idempotencyKey,
+            requestHash,
+            status: zeroAmount ? 'paid' : 'pending',
+            paymentMethod: zeroAmount ? 'points' : 'card',
+            payment: zeroAmount
+              ? { provider: 'none', method: 'points', paidAt: now }
+              : { provider: 'portone', method: 'card', prepareStatus: 'preparing', expiresAt: new Date(now.getTime() + PENDING_TTL_MS) },
+          }], { session: session || undefined });
+
+          // 0원 주문은 즉시 paid — 부수효과(메일·판매량)를 같은 트랜잭션에 예약
+          if (zeroAmount) await enqueueEvents(created._id, buildPaidEvents(created, req.user), session);
+          return created;
+        });
         break;
       } catch (e) {
-        // 동시 중복 요청(같은 멱등키) — 승자 주문을 반환하고 이 요청의 선차감분은 원복
-        if (e.code === 11000 && e.keyPattern?.idempotencyKey && idempotencyKey) {
-          const existing = await Order.findOne({ user: req.user._id, idempotencyKey });
-          if (existing) {
-            await refundReservedBenefits('중복 주문 취소 환급');
-            return res.status(200).json(existing);
-          }
+        // 같은 멱등키 동시 요청 — 승자 주문으로 수렴(트랜잭션이라 이 요청의 차감분은 이미 롤백됨)
+        if (e.code === 11000 && e.keyPattern?.idempotencyKey) {
+          const winner = await Order.findOne({ user: req.user._id, idempotencyKey });
+          if (winner) return respondExistingOrder(res, winner, requestHash);
+        }
+        // 쿠폰 1인 1회 unique 위반 — 이미 사용한 쿠폰
+        if (e.code === 11000 && !e.keyPattern?.orderNumber) {
+          return res.status(400).json({ message: '이미 사용한 쿠폰입니다.' });
         }
         if (e.code === 11000 && attempt < 3) continue; // orderNumber 충돌 → 재시도
         throw e;
       }
     }
   } catch (e) {
-    // 주문 생성 실패 → 선점/선차감한 혜택을 원복(사용자가 쿠폰·적립금을 잃지 않게)
-    await refundReservedBenefits('주문 생성 실패 환급');
+    // standalone 폴백(비원자)에서 부분 실패했을 수 있으므로 orderId 기준 보상 정리(프로덕션 트랜잭션 경로는 no-op)
+    await compensateFailedCreate(orderId, req.user._id).catch(() => {});
     throw e;
   }
 
-  // 선점한 쿠폰에 주문 연결 (best-effort — 이미 소비는 확정됨)
-  if (consumedUserCoupon) {
+  // ── 트랜잭션 밖: 포트원 사전등록(HTTP) ──
+  if (order.status === 'pending') {
     try {
-      consumedUserCoupon.usedOrder = order._id;
-      await consumedUserCoupon.save();
-    } catch {
-      /* usedOrder 연결 실패는 주문을 실패시키지 않음 */
+      await ensurePrepared(order);
+    } catch (e) {
+      if (e instanceof portone.PortoneError) {
+        // 확정 실패 → 주문을 닫고 혜택 원복
+        // TODO(Task 10): cancelService.finalizeCancelTxn로 교체
+        await Order.updateOne({ _id: order._id, status: 'pending' }, { $set: { status: 'cancelled', 'payment.failReason': '결제 사전등록 실패' } });
+        await reverseOrderBenefits(await Order.findById(order._id)).catch(() => {});
+        throw httpError(502, '결제 준비에 실패했습니다. 다시 시도해주세요.');
+      }
+      // 결과 불명 — preparing 유지. 같은 멱등키 재요청이 ensurePrepared를 재시도한다.
+      throw httpError(502, '결제 준비 확인이 지연되고 있습니다. 잠시 후 다시 시도해주세요.');
     }
   }
 
-  // 적립금 사용분은 주문 생성 전에 이미 선(先)차감됨 — 여기서는 그 원장에 주문만 연결(중복 차감 방지)
-  if (spendTxnId) {
+  return res.status(201).json(orderResponse(order));
+}
+
+// 멱등 재요청/경합 수렴 공통 응답
+async function respondExistingOrder(res, existing, requestHash) {
+  if (existing.requestHash && requestHash && existing.requestHash !== requestHash) {
+    return res.status(409).json({ message: '같은 요청 키로 다른 내용의 주문이 진행 중입니다. 새로고침 후 다시 시도해주세요.' });
+  }
+  if (existing.status === 'cancelled') {
+    return res.status(409).json({ message: '이전 주문 시도가 취소되었습니다. 다시 주문해주세요.', code: 'ORDER_CANCELLED' });
+  }
+  if (existing.status === 'pending' && existing.payment?.provider === 'portone') {
     try {
-      await PointTransaction.updateOne(
-        { _id: spendTxnId },
-        { order: order._id, note: `주문 ${order.orderNumber} 사용` },
-      );
-    } catch { /* 원장 주문 연결 실패는 주문을 실패시키지 않음 */ }
+      await ensurePrepared(existing);
+    } catch {
+      return res.status(502).json({ message: '결제 준비 확인이 지연되고 있습니다. 잠시 후 다시 시도해주세요.' });
+    }
   }
-  // 구매 적립은 여기서 지급하지 않고 배송완료(delivered) 전이 시점에 확정한다(updateOrderStatus).
-  // 생성 즉시 적립하면, 그 적립분을 다른 주문에 사용한 뒤 이 주문을 취소할 때 회수가 0으로
-  // 클램프되어 혜택이 영구히 남는 누수가 생기기 때문(적립은 배송확정 후에만 소진 가능해야 함).
+  return res.status(200).json(orderResponse(existing));
+}
 
-  // 판매량 반영 (BEST 정렬용 salesCount) — 비핵심이므로 실패해도 주문은 성립시킨다
-  try {
-    await adjustSales(orderItems, +1);
-  } catch {
-    /* salesCount 갱신 실패는 주문을 실패시키지 않음 */
+function orderResponse(order) {
+  const needsPayment = order.status === 'pending' && order.payment?.provider === 'portone';
+  return {
+    order,
+    checkout: needsPayment
+      ? {
+        orderId: String(order._id),
+        orderNumber: order.orderNumber,
+        amount: order.amounts.grandTotal,
+        orderName: orderName(order),
+      }
+      : null,
+  };
+}
+
+function orderName(order) {
+  const first = order.items[0];
+  const name = first?.nameKo || first?.name || '주문 상품';
+  return order.items.length > 1 ? `${name} 외 ${order.items.length - 1}건` : name;
+}
+
+// standalone 폴백(비원자 실행)에서 생성 실패 시 orderId 기준 보상 정리. 로컬 개발 전용 안전망.
+async function compensateFailedCreate(orderId, userId) {
+  const created = await Order.exists({ _id: orderId });
+  if (created) return; // 주문이 성립했으면 보상 불필요
+  await UserCoupon.updateOne({ usedOrder: orderId }, { used: false, usedOrder: null, usedAt: null }).catch(() => {});
+  const spend = await PointTransaction.findOne({ order: orderId, type: 'spend' });
+  if (spend) {
+    await applyPoints(userId, -spend.amount, 'refund', { note: '주문 생성 실패 환급' }).catch(() => {});
+    await PointTransaction.deleteOne({ _id: spend._id }).catch(() => {});
   }
-
-  // 주문 접수 메일(목업) — 실패해도 주문은 성립
-  try {
-    await sendOrderPlaced(order, req.user);
-  } catch {
-    /* 메일 생성 실패는 주문을 실패시키지 않음 */
-  }
-
-  res.status(201).json(order);
 }
 
 // 내 주문 목록 — GET /orders (requireAuth)
