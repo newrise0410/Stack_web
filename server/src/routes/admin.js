@@ -27,6 +27,11 @@ function uploadSingle(req, res, next) {
 
 router.get('/stats', requireAuth, requireAdmin, asyncHandler(adminController.getStats));
 router.get('/analytics', requireAuth, requireAdmin, asyncHandler(adminController.getAnalytics));
+
+// 운영 상태 — 조용히 쌓이던 실패를 한곳에서 감지·복구
+router.get('/ops', requireAuth, requireAdmin, asyncHandler(adminController.getOps));
+router.get('/events', requireAuth, requireAdmin, asyncHandler(adminController.listEvents));
+router.post('/events/:id/requeue', requireAuth, requireAdmin, asyncHandler(adminController.requeueEvent));
 router.get('/emails', requireAuth, requireAdmin, asyncHandler(emailController.listAllEmails));
 
 // 쿠폰 관리

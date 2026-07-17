@@ -29,6 +29,7 @@ export default function OrdersAdmin() {
   const status = params.get('status') || '';
   const q = params.get('q') || '';
   const product = params.get('product') || '';
+  const refund = params.get('refund') || ''; // 운영 패널에서 review 격리 주문으로 진입
   const page = Math.max(1, parseInt(params.get('page'), 10) || 1);
 
   const [data, setData] = useState({ items: [], total: 0, limit: 30 });
@@ -43,7 +44,7 @@ export default function OrdersAdmin() {
 
   const load = () => {
     setLoading(true);
-    return fetchAdminOrders({ status: status || undefined, q: q || undefined, product: product || undefined, page })
+    return fetchAdminOrders({ status: status || undefined, q: q || undefined, product: product || undefined, refund: refund || undefined, page })
       .then(setData)
       .catch(() => setData({ items: [], total: 0, limit: 30 }))
       .finally(() => setLoading(false));
@@ -56,7 +57,7 @@ export default function OrdersAdmin() {
     load();
     loadCounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, q, product, page]);
+  }, [status, q, product, refund, page]);
 
   const patch = (obj) =>
     setParams((prev) => {
@@ -133,7 +134,7 @@ export default function OrdersAdmin() {
             </button>
           )}
           <button
-            onClick={() => downloadOrdersCsv({ status: status || undefined, q: q || undefined, product: product || undefined })}
+            onClick={() => downloadOrdersCsv({ status: status || undefined, q: q || undefined, product: product || undefined, refund: refund || undefined })}
             className="border border-line px-3.5 py-2 text-[13px] hover:border-ink"
           >
             내보내기(CSV)
@@ -174,6 +175,11 @@ export default function OrdersAdmin() {
         {product && (
           <button onClick={() => patch({ product: '' })} className="border border-line px-3 py-2 text-[12px] text-mute hover:border-ink">
             상품 필터: {product} ✕
+          </button>
+        )}
+        {refund && (
+          <button onClick={() => patch({ refund: '' })} className="border border-sale px-3 py-2 text-[12px] text-sale hover:bg-sale/5">
+            환불 {refund === 'review' ? '확인 필요' : refund} ✕
           </button>
         )}
       </div>

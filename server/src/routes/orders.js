@@ -25,6 +25,7 @@ router.get('/admin/batch', requireAuth, requireAdmin, asyncHandler(orderControll
 router.get('/admin/export', requireAuth, requireAdmin, asyncHandler(orderExportController.exportOrdersCsv));
 router.get('/admin', requireAuth, requireAdmin, asyncHandler(orderController.listAllOrders));
 router.post('/:id/cancel', requireAuth, asyncHandler(orderController.cancelOrder));
+router.post('/:id/retry-refund', requireAuth, requireAdmin, asyncHandler(orderController.retryRefund));
 router.patch('/:id/status', requireAuth, requireAdmin, asyncHandler(orderController.updateOrderStatus));
 router.get('/:id', requireAuth, asyncHandler(orderController.getOrder));
 

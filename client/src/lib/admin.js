@@ -21,6 +21,25 @@ export async function fetchAnalytics(period = '30d') {
   return data;
 }
 
+// ── 운영 상태 (조용한 실패 감지·복구) ──────────────────────
+export async function fetchOps() {
+  const { data } = await api.get('/admin/ops');
+  return data; // { counts:{failedEvents,webhookErrors,refundReview,benefitsStuck}, lastCycle }
+}
+export async function fetchEvents(params = {}) {
+  const { data } = await api.get('/admin/events', { params });
+  return data;
+}
+export async function requeueEvent(id) {
+  const { data } = await api.post(`/admin/events/${id}/requeue`);
+  return data;
+}
+// review로 격리된 주문의 환불 재시도 — 포트원 실제 상태로 수렴(재환불 or 이미완료 감지)
+export async function retryRefund(id) {
+  const { data } = await api.post(`/orders/${id}/retry-refund`);
+  return data;
+}
+
 // 주문 목록 (필터: status, q, from, to, page, limit)
 export async function fetchAdminOrders(params = {}) {
   const { data } = await api.get('/orders/admin', { params });

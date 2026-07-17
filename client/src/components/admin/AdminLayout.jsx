@@ -11,6 +11,7 @@ const NAV = [
   { to: '/admin/emails', label: '이메일' },
   { to: '/admin/coupons', label: '쿠폰' },
   { to: '/admin/analytics', label: '분석' },
+  { to: '/admin/ops', label: '운영' },
 ];
 
 export default function AdminLayout() {

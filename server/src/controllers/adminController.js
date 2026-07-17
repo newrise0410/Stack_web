@@ -2,6 +2,9 @@ import Order, { SALES_STATES } from '../models/Order.js';
 import User from '../models/User.js';
 import Product from '../models/Product.js';
 import PointTransaction from '../models/PointTransaction.js';
+import OrderEvent from '../models/OrderEvent.js';
+import WebhookLog from '../models/WebhookLog.js';
+import { getLastCycle } from '../services/paymentJobs.js';
 
 function dayStart(d = new Date()) {
   const x = new Date(d);
@@ -171,4 +174,60 @@ export async function getMember(req, res) {
     points: user.points || 0,
     pointTransactions,
   });
+}
+
+// 운영 상태 — GET /admin/ops
+// 지금까지 stdout에만 있던 '조용한 실패'들을 한곳에 센다. 값이 0이 아니면 사람이 개입할 일이 있다는 뜻.
+export async function getOps(req, res) {
+  const [failedEvents, webhookErrors, refundReview, benefitsStuck] = await Promise.all([
+    OrderEvent.countDocuments({ status: 'failed' }), // 재시도 소진 — salesCount 불일치·메일 미발송
+    WebhookLog.countDocuments({ result: 'error' }), // 포트원 웹훅 처리 실패
+    Order.countDocuments({ 'payment.refund.status': 'review' }), // 환불 실패로 격리된 주문(데드락)
+    Order.countDocuments({ status: 'cancelled', benefitsReversed: false }), // 취소됐는데 쿠폰·적립 원복 실패
+  ]);
+  res.json({
+    counts: { failedEvents, webhookErrors, refundReview, benefitsStuck },
+    lastCycle: getLastCycle(), // { at, ok, counts } | null — 결제 잡이 살아 있는지
+  });
+}
+
+// outbox 이벤트 목록 — GET /admin/events?status=failed&page=
+export async function listEvents(req, res) {
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+  const filter = {};
+  const status = String(req.query.status || '');
+  if (['pending', 'processing', 'done', 'failed'].includes(status)) filter.status = status;
+  const [items, total] = await Promise.all([
+    OrderEvent.find(filter)
+      .sort({ updatedAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .populate('order', 'orderNumber'),
+    OrderEvent.countDocuments(filter),
+  ]);
+  res.json({ page, limit, total, items });
+}
+
+// outbox 이벤트 수동 재큐 — POST /admin/events/:id/requeue
+// failed만 대상. pending으로 되돌리고 attempts를 초기화하면 다음 잡 사이클이 다시 집어간다.
+//
+// ⚠️ exactly-once가 아니다. uniqueKey는 '중복 enqueue'만 막고 '같은 row 재실행'은 못 막는다.
+//    runEvent의 부수효과(adjustSales $inc, EmailMessage.create)는 멱등하지 않아, 부수효과가
+//    이미 1회 적용된 뒤 done-write만 실패해 failed가 된 이벤트를 재큐하면 salesCount가 이중
+//    가산되거나 메일이 중복 생성된다. 이건 재큐가 새로 만든 문제가 아니라 outbox의 기존
+//    at-least-once 성질이다(stale-processing 재큐도 동일). 근본 해법은 runEvent+done-write의
+//    트랜잭션 원자화 — 별도 작업으로 로드맵에 있다. 그전까지 재큐는 '진짜 미적용 실패'에만
+//    쓰고, 부수효과가 적용됐는지 애매하면 lastError를 확인할 것. UI에서 이 위험을 경고한다.
+export async function requeueEvent(req, res) {
+  const ev = await OrderEvent.findById(req.params.id).catch(() => null);
+  if (!ev) return res.status(404).json({ message: '이벤트를 찾을 수 없습니다.' });
+  if (ev.status !== 'failed') {
+    return res.status(400).json({ message: '영구 실패한 이벤트만 재큐할 수 있습니다.' });
+  }
+  await OrderEvent.updateOne(
+    { _id: ev._id, status: 'failed' }, // CAS — 그 사이 잡이 손댔으면 무시
+    { $set: { status: 'pending', attempts: 0, lastError: '' } },
+  );
+  res.json({ ok: true });
 }

@@ -21,6 +21,7 @@ import ReviewsAdmin from './pages/admin/ReviewsAdmin.jsx';
 import Analytics from './pages/admin/Analytics.jsx';
 import EmailsAdmin from './pages/admin/EmailsAdmin.jsx';
 import CouponsAdmin from './pages/admin/CouponsAdmin.jsx';
+import OpsAdmin from './pages/admin/OpsAdmin.jsx';
 import Cart from './pages/Cart.jsx';
 import Checkout from './pages/Checkout.jsx';
 import CheckoutComplete from './pages/CheckoutComplete.jsx';
@@ -95,6 +96,7 @@ export default function App() {
         <Route path="emails" element={<EmailsAdmin />} />
         <Route path="coupons" element={<CouponsAdmin />} />
         <Route path="analytics" element={<Analytics />} />
+        <Route path="ops" element={<OpsAdmin />} />
       </Route>
     </Routes>
   );

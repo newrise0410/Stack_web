@@ -7,6 +7,13 @@ import { processPendingEvents } from './orderEventService.js';
 const BATCH = 20;
 const REFUND_RETRY_AFTER_MS = 10 * 60 * 1000; // requested가 10분 넘게 잠겨 있으면 재수렴 대상
 
+// 마지막 사이클 결과 — 운영 패널(GET /admin/ops)이 "잡이 살아 있나"를 판단하는 유일한 신호.
+// 예전엔 counts를 버려서 잡이 죽어도 아무도 몰랐다. null = 아직 한 번도 안 돎.
+let lastCycle = null;
+export function getLastCycle() {
+  return lastCycle;
+}
+
 // 60초 주기 reconciler/sweeper. 단일 인스턴스 전제(Render 무료 티어) — 분산 락 없음.
 // 각 항목은 독립 실패(한 건 오류가 사이클을 멈추지 않음).
 export async function runPaymentJobsCycle() {
@@ -90,7 +97,8 @@ export function startPaymentJobs({ intervalMs = 60_000 } = {}) {
     if (cycleRunning) return;
     cycleRunning = true;
     runPaymentJobsCycle()
-      .catch((e) => logErr('cycle', e))
+      .then((counts) => { lastCycle = { at: new Date(), ok: true, counts }; })
+      .catch((e) => { lastCycle = { at: new Date(), ok: false, error: String(e?.message || e).slice(0, 200) }; logErr('cycle', e); })
       .finally(() => { cycleRunning = false; });
   }, intervalMs);
   timer.unref?.(); // 종료를 막지 않게

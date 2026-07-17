@@ -12,7 +12,7 @@ import { httpError } from '../utils/httpError.js';
 import { enqueueEvents, buildPaidEvents } from '../services/orderEventService.js';
 import { ensurePrepared } from '../services/checkoutService.js';
 import * as portone from '../services/portoneService.js';
-import { cancelOrderSaga, finalizeCancelTxn } from '../services/cancelService.js';
+import { cancelOrderSaga, finalizeCancelTxn, executeRefund, reconcileLateRefund } from '../services/cancelService.js';
 import { applyTransition } from '../services/orderTransitionService.js';
 
 const SHIPPING_FEE = 3000;
@@ -370,6 +370,12 @@ export function buildAdminOrderFilter(query) {
 
   const product = String(query.product || '').trim();
   if (product) filter['items.slug'] = product;
+
+  // 환불 상태 필터 — 운영 패널이 review 격리 주문을 바로 걸러 보여주기 위해(데드락 발견 경로).
+  const refund = String(query.refund || '').trim();
+  if (['requested', 'processing', 'done', 'review'].includes(refund)) {
+    filter['payment.refund.status'] = refund;
+  }
   return filter;
 }
 
@@ -432,6 +438,42 @@ export async function updateOrderStatus(req, res) {
     default: // refund_locked, conflict, review
       return res.status(409).json({ message: r.message });
   }
+}
+
+// 환불 재시도 — POST /orders/:id/retry-refund (admin)
+// 'review'로 격리된 주문의 데드락을 푸는 유일한 화면 수단. refund_locked가 모든 전이를
+// 막으므로 이전엔 DB 직접 수정이 유일한 탈출구였다.
+//
+// ⚠️ 실제 환불 없이 상태만 바꾸는 '완료로 표시'는 만들지 않는다 — 고객 돈을 안 돌려주게 된다.
+// 대신 executeRefund/reconcileLateRefund가 **포트원을 진실의 원천으로** 재조회한다:
+//   - 관리자가 포트원 콘솔에서 이미 환불했다면 remaining<=0을 감지해 done으로 수렴
+//   - 아직이면 재환불을 시도, 또 실패하면 review 유지(장부는 절대 어긋나지 않음)
+// status 분기는 paymentJobs.reconcileRefunds와 동일하다: cancelled면 reconcileLateRefund,
+// 아직 paid/preparing이면 executeRefund(finalizeCancelTxn까지 수행해 취소 확정).
+export async function retryRefund(req, res) {
+  const order = await Order.findById(req.params.id).catch(() => null);
+  if (!order) return res.status(404).json({ message: '주문을 찾을 수 없습니다.' });
+  if (order.payment?.refund?.status !== 'review') {
+    return res.status(400).json({ message: '환불 확인이 필요한 주문이 아닙니다.' });
+  }
+  // 단일 승자 CAS — review→processing으로 선점한 요청만 진행한다. 이게 없으면 두 탭/두 관리자의
+  // 동시 재시도가 각각 portone.cancel을 호출해 이중환불 방어가 포트원 checksum에만 의존하게 되고,
+  // 패자가 승자의 done을 review로 되돌려 cancelled+review 고아 상태를 만든다(적대 리뷰 CONFIRMED).
+  // cancelService의 모든 환불 경로가 refund.status CAS로 단일 승자를 보장하는데, 이 경로만 빠져 있었다.
+  const claimed = await Order.findOneAndUpdate(
+    { _id: order._id, 'payment.refund.status': 'review' },
+    { $set: { 'payment.refund.status': 'processing' } },
+    { new: true },
+  );
+  if (!claimed) return res.status(409).json({ message: '이미 환불 처리가 진행 중입니다.' });
+
+  // processing으로 바꿔 진입한다 — executeRefund/reconcileLateRefund는 포트원을 재조회해 수렴하고,
+  // 실패 시 다시 review로 되돌린다(자동 잡이 이어받을 수 있게 processing으로 남기기도 함).
+  const result = claimed.status === 'cancelled'
+    ? await reconcileLateRefund(claimed)
+    : await executeRefund(claimed);
+  const updated = await Order.findById(order._id).populate('user', 'name email status');
+  return res.json({ outcome: result.outcome, order: updated });
 }
 
 // 주문 상세 — GET /orders/:id (requireAuth, 본인/admin)

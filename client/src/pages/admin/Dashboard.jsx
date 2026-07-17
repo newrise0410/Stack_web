@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { fetchStats } from '../../lib/admin.js';
+import { fetchStats, fetchOps } from '../../lib/admin.js';
 import { won } from '../../lib/format.js';
 import StatCard from '../../components/admin/StatCard.jsx';
 import StatusBadge from '../../components/admin/StatusBadge.jsx';
 
 export default function Dashboard() {
   const [s, setS] = useState(null);
+  const [ops, setOps] = useState(null);
   const [err, setErr] = useState('');
 
   useEffect(() => {
@@ -14,15 +15,28 @@ export default function Dashboard() {
     fetchStats()
       .then((d) => active && setS(d))
       .catch(() => active && setErr('통계를 불러오지 못했습니다.'));
+    // 운영 상태는 부가 정보 — 실패해도 대시보드를 막지 않는다.
+    fetchOps().then((d) => active && setOps(d)).catch(() => {});
     return () => { active = false; };
   }, []);
 
   if (err) return <p className="py-12 text-center text-mute">{err}</p>;
   if (!s) return <p className="py-12 text-center text-mute">불러오는 중…</p>;
 
+  const opsTotal = ops ? Object.values(ops.counts).reduce((a, n) => a + n, 0) : 0;
+
   return (
     <div>
       <h1 className="text-2xl font-bold tracking-tight">대시보드</h1>
+
+      {opsTotal > 0 && (
+        <Link to="/admin/ops" className="mt-4 flex items-center justify-between gap-3 border border-sale bg-sale/5 px-4 py-3 text-sm hover:bg-sale/10">
+          <span className="text-sale">
+            ⚠ 확인이 필요한 운영 이슈 {opsTotal}건 — 환불 확인 {ops.counts.refundReview} · outbox 실패 {ops.counts.failedEvents} · 취소 원복 실패 {ops.counts.benefitsStuck} · 웹훅 오류 {ops.counts.webhookErrors}
+          </span>
+          <span className="shrink-0 font-medium text-sale underline underline-offset-4">운영 상태 →</span>
+        </Link>
+      )}
 
       <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard label="오늘 매출" value={`${won(s.sales.today)}원`} />

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { fetchOrder, setOrderStatus, ORDER_STATUS_LABEL } from '../../lib/admin.js';
+import { fetchOrder, setOrderStatus, retryRefund, ORDER_STATUS_LABEL } from '../../lib/admin.js';
 import { useToast } from '../../lib/toast.jsx';
 import { won } from '../../lib/format.js';
 import StatusBadge from '../../components/admin/StatusBadge.jsx';
@@ -67,6 +67,25 @@ export default function OrderDetail() {
     }
   };
 
+  // review 데드락 해소 — 포트원 실제 상태로 수렴(재환불 or 이미완료 감지). 상태만 바꾸지 않는다.
+  const onRetryRefund = async () => {
+    if (!window.confirm('포트원에 환불을 다시 시도합니다. 이미 환불됐다면 완료로 정리됩니다. 진행할까요?')) return;
+    setBusy(true);
+    try {
+      const r = await retryRefund(id);
+      apply(r.order);
+      toast.success(
+        r.order?.payment?.refund?.status === 'done'
+          ? '환불이 완료로 정리됐습니다.'
+          : '환불이 아직 완료되지 않았습니다. 포트원 상태를 확인해주세요.',
+      );
+    } catch (e) {
+      toast.error(e.response?.data?.message || '환불 재시도에 실패했습니다.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (err) return <p className="py-12 text-center text-mute">{err}</p>;
   if (!o) return <p className="py-12 text-center text-mute">불러오는 중…</p>;
   const nexts = NEXT[o.status] || [];
@@ -91,7 +110,20 @@ export default function OrderDetail() {
         </button>
       </div>
       {o.payment?.refund?.status === 'review' && (
-        <p className="mt-1 text-[12px] text-sale">{o.payment.refund.reason}</p>
+        <div className="mt-2 border border-sale/40 bg-sale/5 px-3 py-2.5">
+          <p className="text-[12px] text-sale">{o.payment.refund.reason}</p>
+          <p className="mt-1 text-[12px] text-mute">
+            자동 환불이 실패해 격리된 주문입니다. 이 상태에서는 다른 상태 변경이 막힙니다.
+            포트원 콘솔에서 환불을 확인·처리한 뒤 아래 버튼을 누르면 상태가 정리됩니다.
+          </p>
+          <button
+            onClick={onRetryRefund}
+            disabled={busy}
+            className="mt-2 border border-sale px-4 py-2 text-[13px] font-medium text-sale hover:bg-sale/10 disabled:opacity-50"
+          >
+            {busy ? '처리 중…' : '환불 재시도'}
+          </button>
+        </div>
       )}
       <p className="mt-1 text-[13px] text-mute">{o.createdAt?.slice(0, 16).replace('T', ' ')}</p>
 
