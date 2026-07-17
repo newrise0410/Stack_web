@@ -1,4 +1,5 @@
 import Order from '../models/Order.js';
+import OrderEvent from '../models/OrderEvent.js';
 import UserCoupon from '../models/UserCoupon.js';
 import PointTransaction from '../models/PointTransaction.js';
 import { applyPoints } from './pointService.js';
@@ -51,7 +52,14 @@ export async function finalizeCancelTxn(orderId, fromStatuses, { reason = '', re
     );
     if (!order) return null;
     await reverseOrderBenefits(order, session);
-    await enqueueEvents(order._id, buildCancelEvents(order), session);
+    // 취소 부수효과(판매량 감소·취소 메일)는 "결제가 실제 성립했던 주문"에만.
+    // outbox 시대 주문(provider portone/none)은 paid 확정 트랜잭션이 paid_sales_inc를
+    // 남기므로 그 존재가 기준 — 미결제 pending 취소가 salesCount를 음수로 만들던 결함 수정.
+    // 레거시 mock 주문(provider 없음)은 생성 시 inline 가산이라 기존대로 항상 감산.
+    const isOutboxOrder = ['portone', 'none'].includes(order.payment?.provider);
+    const wasPaid = !isOutboxOrder
+      || Boolean(await OrderEvent.exists({ order: order._id, type: 'paid_sales_inc' }).session(session || null));
+    if (wasPaid) await enqueueEvents(order._id, buildCancelEvents(order), session);
     return order;
   });
 }

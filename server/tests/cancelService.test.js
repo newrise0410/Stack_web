@@ -41,7 +41,8 @@ describe('cancelOrderSaga — pending(A 경로)', () => {
     expect(r.outcome).toBe('cancelled');
     expect(r.order.status).toBe('cancelled');
     expect((await User.findById(user._id)).points).toBe(500); // 환급
-    expect(await OrderEvent.countDocuments({ order: order._id, type: 'cancel_sales_dec' })).toBe(1);
+    // 결제가 성립한 적 없는 주문 — 판매량 감소·취소메일 이벤트를 걸지 않는다(salesCount 음수 방지)
+    expect(await OrderEvent.countDocuments({ order: order._id })).toBe(0);
   });
 
   it('늦은 결제 발견 — 취소 대신 paid 확정(became_paid)', async () => {
@@ -132,4 +133,18 @@ describe('cancelOrderSaga — paid(B 경로)', () => {
     expect(saved.status).toBe('paid');
     expect(saved.payment.refund.status).toBe('review');
   });
+});
+
+describe('finalizeCancelTxn — 판매량 이벤트 게이트', () => {
+  it('paid 이력이 있는 주문 취소 — cancel_sales_dec 이벤트 생성', async () => {
+    const user = await createTestUser();
+    const order = await makeOrder(user, { status: 'paid', payment: { provider: 'portone', method: 'card', impUid: `imp_wp${seq}`, refund: { status: 'none' } } });
+    await OrderEvent.create({ order: order._id, type: 'paid_sales_inc', uniqueKey: `${order._id}:paid_sales_inc`, status: 'done' });
+    portone.getPayment.mockResolvedValue({ imp_uid: order.payment.impUid, merchant_uid: order.orderNumber, status: 'paid', amount: 12500, cancel_amount: 0, currency: 'KRW' });
+    portone.cancel.mockResolvedValue({ status: 'cancelled', cancel_amount: 12500 });
+    const r = await cancelOrderSaga(order._id, { actor: 'user' });
+    expect(r.outcome).toBe('cancelled');
+    expect(await OrderEvent.countDocuments({ order: order._id, type: 'cancel_sales_dec' })).toBe(1);
+  });
+
 });
