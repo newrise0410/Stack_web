@@ -206,6 +206,13 @@ export default function Checkout() {
         idemKeyRef.current,
       );
 
+      // 응답 형식 방어 — 서버가 {order, checkout}을 주지 않으면(배포 버전 불일치 등)
+      // 장바구니를 비우지 않고 중단한다. finishPaid(undefined)로 유령 상태가 되는 것 방지.
+      if (!order?._id) {
+        setErr('주문 처리 응답이 올바르지 않습니다. 잠시 후 다시 시도해주세요.');
+        return undefined;
+      }
+
       // 0원(포인트 전액) — 결제창 없이 완료
       if (!checkout) return finishPaid(order);
 
