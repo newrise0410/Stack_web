@@ -12,7 +12,9 @@
     "dev": "nodemon src/server.js",
     "seed": "node src/seed/seedProducts.js",
     "migrate:images": "node src/scripts/migrateImagesToCloudinary.mjs",
-    "sweep:images": "node src/scripts/sweepOrphanCloudinary.mjs"
+    "sweep:images": "node src/scripts/sweepOrphanCloudinary.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -25,6 +27,9 @@
     "multer": "^2.2.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.4"
+    "mongodb-memory-server": "^10.4.3",
+    "nodemon": "^3.1.4",
+    "supertest": "^7.2.2",
+    "vitest": "^2.1.9"
   }
 }
