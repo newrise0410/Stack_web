@@ -3,7 +3,7 @@ import Order from '../models/Order.js';
 import Product from '../models/Product.js';
 import Coupon from '../models/Coupon.js';
 import UserCoupon from '../models/UserCoupon.js';
-import { sendOrderPlaced, sendOrderStatus } from '../services/emailService.js';
+import { sendOrderPlaced } from '../services/emailService.js';
 import { validateCoupon, computeCoupon } from '../services/couponService.js';
 import { applyPoints, EARN_RATE } from '../services/pointService.js';
 import PointTransaction from '../models/PointTransaction.js';
@@ -13,6 +13,7 @@ import { enqueueEvents, buildPaidEvents } from '../services/orderEventService.js
 import { ensurePrepared } from '../services/checkoutService.js';
 import * as portone from '../services/portoneService.js';
 import { cancelOrderSaga, finalizeCancelTxn } from '../services/cancelService.js';
+import { applyTransition } from '../services/orderTransitionService.js';
 
 const SHIPPING_FEE = 3000;
 const FREE_SHIPPING_THRESHOLD = 50000; // 5만원 이상 무료배송
@@ -353,92 +354,25 @@ export async function cancelOrder(req, res) {
   }
 }
 
-// 주문 상태 변경 — PATCH /orders/:id/status (admin)
-// 허용 전이만 강제하는 상태머신. cancelled는 종료(되돌리기 없음).
-const TRANSITIONS = {
-  pending: ['cancelled'],
-  paid: ['preparing', 'cancelled'],
-  preparing: ['shipped', 'cancelled'],
-  shipped: ['delivered', 'shipped'], // 동일상태 재요청 = 송장 수정용
-  delivered: ['delivered'], // 동일상태 재요청 = 적립 지급 재시도용(멱등, 이메일 재발송 없음)
-  cancelled: [],
-};
-
+// 주문 상태 변경 — PATCH /orders/:id/status (admin). 로직은 orderTransitionService 공유.
 export async function updateOrderStatus(req, res) {
-  const next = String(req.body.status || '');
-  const order = await Order.findById(req.params.id);
-  if (!order) return res.status(404).json({ message: '주문을 찾을 수 없습니다.' });
-
-  const refundStatus = order.payment?.refund?.status;
-  if (['requested', 'processing', 'review'].includes(refundStatus)) {
-    return res.status(409).json({ message: '환불 처리 중인 주문입니다. 완료 후 다시 시도해주세요.' });
+  const r = await applyTransition(req.params.id, String(req.body.status || ''), {
+    courier: req.body.courier,
+    trackingNumber: req.body.trackingNumber,
+    actor: 'admin',
+  });
+  if (r.ok) return res.json(r.order);
+  switch (r.code) {
+    case 'not_found':
+      return res.status(404).json({ message: r.message });
+    case 'invalid_transition':
+    case 'tracking_required':
+      return res.status(400).json({ message: r.message });
+    case 'refund_pending':
+      return res.status(202).json({ message: r.message, order: r.order });
+    default: // refund_locked, conflict, review
+      return res.status(409).json({ message: r.message });
   }
-
-  const prev = order.status; // 실제 상태 전이 여부 판단용
-  const allowed = TRANSITIONS[prev] || [];
-  if (!allowed.includes(next)) {
-    return res.status(400).json({ message: `'${prev}' 상태에서 '${next}'(으)로 변경할 수 없습니다.` });
-  }
-
-  if (next === 'cancelled') {
-    const r = await cancelOrderSaga(order._id, { actor: 'admin', reason: '관리자 취소' });
-    if (['cancelled', 'already_cancelled'].includes(r.outcome)) {
-      const populated = await Order.findById(order._id).populate('user', 'name email');
-      return res.json(populated);
-    }
-    if (r.outcome === 'refund_pending') return res.status(202).json({ message: '환불 접수됨 — 처리 완료 후 자동 취소됩니다.', order: r.order });
-    return res.status(409).json({ message: '취소를 완료하지 못했습니다. 환불 상태를 확인해주세요.' });
-  }
-
-  // 배송중 전환/송장 수정 시 송장번호 필수
-  const setFields = { status: next };
-  if (next === 'shipped') {
-    const tn = String(req.body.trackingNumber || '').trim();
-    if (!tn) return res.status(400).json({ message: '송장번호를 입력해주세요.' });
-    setFields.courier = String(req.body.courier || '').trim();
-    setFields.trackingNumber = tn;
-  }
-
-  // 조건부 원자적 전이: 읽은 시점의 prev 상태일 때만 갱신한다.
-  // (비원자적 read-check-save 는 동시 상태변경 경합에서 lost-update 를 열어주므로,
-  //  prev 로 compare-and-set 해 한 요청만 통과시킨다.) cancelled 전이는 위에서 saga로 분기 완료.
-  const updated = await Order.findOneAndUpdate(
-    { _id: order._id, status: prev },
-    { $set: setFields },
-    { new: true },
-  );
-  if (!updated) {
-    return res.status(409).json({ message: '주문 상태가 이미 변경되었습니다. 다시 시도해주세요.' });
-  }
-
-  // 배송완료 전이 시 구매 적립 확정 지급 — 멱등(이미 적립 원장이 있으면 재지급 안 함).
-  // 생성 시점이 아닌 배송완료 시점에 적립해야, 취소 가능한 주문의 적립분 누수를 원천 차단한다.
-  // 지급 순간 일시 장애로 실패해도 delivered→delivered 재요청으로 다시 태울 수 있고(멱등),
-  // 동시 재요청은 {order,type:earn} unique 로 직렬화되어 이중 적립되지 않는다.
-  if (next === 'delivered' && updated.pointsEarned > 0) {
-    try {
-      const earned = await PointTransaction.exists({ order: updated._id, type: 'earn' });
-      if (!earned) {
-        await applyPoints(updated.user?._id || updated.user, updated.pointsEarned, 'earn', {
-          order: updated._id, note: `주문 ${updated.orderNumber} 적립`,
-        });
-      }
-    } catch (e) {
-      console.error('[updateOrderStatus] 적립 지급 실패:', updated.orderNumber, e?.message);
-    }
-  }
-
-  // 응답용 populate + 상태 안내 메일(목업) — 둘 다 실패해도 상태변경은 이미 성립
-  // 실제 상태 전이(next!==prev)일 때만 발송: shipped→shipped(송장 수정) 재발송 방지
-  try {
-    await updated.populate('user', 'name email');
-    if (next !== prev && ['shipped', 'delivered'].includes(next)) {
-      await sendOrderStatus(updated, updated.user);
-    }
-  } catch {
-    /* populate/메일 실패는 상태변경을 실패시키지 않음 */
-  }
-  res.json(updated);
 }
 
 // 주문 상세 — GET /orders/:id (requireAuth, 본인/admin)
