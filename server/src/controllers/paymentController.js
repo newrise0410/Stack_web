@@ -4,6 +4,13 @@ import * as portone from '../services/portoneService.js';
 
 // imp_uid 형식 화이트리스트 — 웹훅/complete body를 Mongo·포트원에 넘기기 전 차단
 const IMP_UID_RE = /^imps?_[0-9A-Za-z_-]{4,40}$/;
+// merchant_uid(주문번호) 형식 — find 폴백 힌트용. 검증 실패 시 힌트만 버린다.
+const MERCHANT_UID_RE = /^\d{8}-\d{6}$/;
+
+function merchantUidHintFrom(value) {
+  const s = typeof value === 'string' ? value.trim() : '';
+  return MERCHANT_UID_RE.test(s) ? s : null;
+}
 
 function outcomeToHttp(res, r) {
   switch (r.outcome) {
@@ -32,7 +39,10 @@ export async function completePayment(req, res) {
   if (!IMP_UID_RE.test(impUid)) {
     return res.status(400).json({ message: '잘못된 결제 식별자입니다.' });
   }
-  const r = await verifyAndCompletePayment(impUid, { requesterId: req.user._id });
+  const r = await verifyAndCompletePayment(impUid, {
+    requesterId: req.user._id,
+    merchantUidHint: merchantUidHintFrom(req.body?.merchantUid),
+  });
   return outcomeToHttp(res, r);
 }
 
@@ -56,7 +66,9 @@ export async function portoneWebhook(req, res) {
     log && WebhookLog.updateOne({ _id: log._id }, { $set: { result, note: String(note || '').slice(0, 200) } }).catch(() => {});
 
   try {
-    const r = await verifyAndCompletePayment(impUid);
+    const r = await verifyAndCompletePayment(impUid, {
+      merchantUidHint: merchantUidHintFrom(req.body?.merchant_uid),
+    });
     await setLog('processed', r.outcome);
     return res.status(200).json({ ok: true, outcome: r.outcome });
   } catch (e) {

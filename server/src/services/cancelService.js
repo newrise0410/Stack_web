@@ -75,7 +75,7 @@ export async function cancelOrderSaga(orderId, { actor = 'user', reason = '' } =
       const pmt = await portone.findPayment(order.orderNumber);
       if (pmt && pmt.status === 'paid') {
         // 승인은 됐는데 콜백이 아직 — 취소 대신 결제 확정으로 수렴
-        await verifyAndCompletePayment(pmt.imp_uid);
+        await verifyAndCompletePayment(pmt.imp_uid, { merchantUidHint: order.orderNumber });
         return { outcome: 'became_paid', order: await Order.findById(orderId) };
       }
       if (pmt && pmt.status === 'ready') {
@@ -115,11 +115,26 @@ export async function cancelOrderSaga(orderId, { actor = 'user', reason = '' } =
   return executeRefund(locked);
 }
 
+// imp_uid 단건 조회 + merchant_uid find 폴백. 일부 신콘솔 계정에서 GET /payments/{imp_uid}가
+// 404를 반환하는 실측 이슈(find는 정상)가 있어, 우리 DB의 orderNumber(신뢰값)로 find 후
+// imp_uid 일치를 확인해 같은 결제임을 보장한다.
+async function getPaymentWithFallback(order) {
+  const impUid = order.payment.impUid;
+  try {
+    return await portone.getPayment(impUid);
+  } catch (e) {
+    if (!(e instanceof portone.PortoneError)) throw e;
+    const found = await portone.findPayment(order.orderNumber);
+    if (found && found.imp_uid === impUid) return found;
+    throw e;
+  }
+}
+
 // refund 락을 쥔 주문의 전액환불 실행. reconciler(Task 11)도 processing 주문에 재사용.
 export async function executeRefund(order) {
   let pmt;
   try {
-    pmt = await portone.getPayment(order.payment.impUid);
+    pmt = await getPaymentWithFallback(order);
   } catch (e) {
     await Order.updateOne({ _id: order._id }, { $set: { 'payment.refund.status': 'processing' } });
     return { outcome: 'refund_pending', order: await Order.findById(order._id) };
@@ -170,7 +185,7 @@ export async function reconcileLateRefund(order) {
 
   let pmt;
   try {
-    pmt = await portone.getPayment(impUid);
+    pmt = await getPaymentWithFallback(order);
   } catch (e) {
     // 조회 실패 — processing 유지, 다음 사이클에 재시도
     return { outcome: 'refund_pending' };

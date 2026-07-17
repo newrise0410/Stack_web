@@ -247,7 +247,7 @@ export default function Checkout() {
 
       // 3) 서버 검증 — 성공 판정은 서버만 한다
       try {
-        const d = await completePayment(rsp.imp_uid);
+        const d = await completePayment(rsp.imp_uid, checkout.orderNumber);
         if (d?.order && ['paid', 'already_paid'].includes(d.outcome)) {
           return finishPaid(d.order);
         }

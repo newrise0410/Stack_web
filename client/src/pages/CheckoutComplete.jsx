@@ -22,7 +22,7 @@ export default function CheckoutComplete() {
     async function run() {
       if (impUid) {
         try {
-          const d = await completePayment(impUid);
+          const d = await completePayment(impUid, params.get('merchant_uid') || ctx?.orderNumber || null);
           // 202(ready) 등은 order 없이 2xx로 온다 — outcome이 확정(paid/already_paid)일 때만 완료 처리.
           if (d?.order && ['paid', 'already_paid'].includes(d.outcome)) {
             (ctx?.lines || []).forEach((l) => remove(l.id, l.option));

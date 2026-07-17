@@ -137,6 +137,25 @@ describe('verifyAndCompletePayment', () => {
     expect((await Order.findById(o3._id)).status).toBe('pending');
   });
 
+  it('단건조회 404 + merchantUidHint — find 폴백으로 paid 확정 (imp_uid 일치 필수)', async () => {
+    const { PortoneError } = await vi.importActual('../src/services/portoneService.js');
+    const user = await createTestUser();
+    const order = await makeOrder(user);
+    const p = pmt(order);
+    portone.getPayment.mockRejectedValue(new PortoneError('존재하지 않는 결제정보입니다.'));
+    portone.findPayment.mockResolvedValue(p);
+    const r = await verifyAndCompletePayment(p.imp_uid, { merchantUidHint: order.orderNumber });
+    expect(r.outcome).toBe('paid');
+    expect((await Order.findById(order._id)).status).toBe('paid');
+    // imp_uid 불일치면 폴백 불인정 — 원래 에러 전파
+    const order2 = await makeOrder(user);
+    portone.findPayment.mockResolvedValue({ ...pmt(order2), imp_uid: 'imp_someone_else' });
+    await expect(
+      verifyAndCompletePayment('imp_not_matching', { merchantUidHint: order2.orderNumber }),
+    ).rejects.toThrow('존재하지 않는');
+    expect((await Order.findById(order2._id)).status).toBe('pending');
+  });
+
   it('로컬 cancelled + 늦은 paid — onLatePaid 기동', async () => {
     const user = await createTestUser();
     const order = await makeOrder(user, { status: 'cancelled' });

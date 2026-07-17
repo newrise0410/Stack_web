@@ -33,9 +33,24 @@ async function markReview(orderId, reason) {
 
 // 포트원 결제 검증·확정. 클라이언트가 준 merchant_uid는 신뢰하지 않고
 // 포트원 응답의 merchant_uid로만 주문을 식별한다(스펙 §5.2 — 타 결제 imp_uid 공격 차단).
-export async function verifyAndCompletePayment(impUid, { requesterId = null } = {}) {
-  const pmt = await portone.getPayment(impUid); // PortoneError → 호출부에서 not_found 매핑 어려우니 여기서 처리
+// merchantUidHint: 일부 신콘솔 계정에서 GET /payments/{imp_uid} 단건 조회가 404를 반환하는
+// 실측 이슈(find/{merchant_uid}는 정상)가 있어, 힌트가 있으면 find로 폴백한다. 힌트는
+// "어느 주문번호를 조회할지" 선택에만 쓰이고, 포트원 응답의 imp_uid가 요청 imp_uid와
+// 일치할 때만 인정하므로 위조된 힌트로는 아무 것도 얻을 수 없다.
+export async function verifyAndCompletePayment(impUid, { requesterId = null, merchantUidHint = null } = {}) {
+  const pmt = await resolvePayment(impUid, merchantUidHint);
   return applyVerified(pmt, { requesterId });
+}
+
+async function resolvePayment(impUid, merchantUidHint) {
+  try {
+    return await portone.getPayment(impUid);
+  } catch (e) {
+    if (!(e instanceof portone.PortoneError) || !merchantUidHint) throw e;
+    const found = await portone.findPayment(String(merchantUidHint));
+    if (found && found.imp_uid === impUid) return found; // 데이터는 전부 포트원 응답 — 힌트는 선택용
+    throw e;
+  }
 }
 
 async function applyVerified(pmt, { requesterId }) {

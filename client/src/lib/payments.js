@@ -21,8 +21,9 @@ export function clearPayContext() {
 }
 
 // 결제창 콜백/리다이렉트 후 서버 검증 — 서버가 포트원 재조회로 최종 판정한다.
-export async function completePayment(impUid) {
-  const { data } = await api.post('/payments/complete', { impUid });
+export async function completePayment(impUid, merchantUid = null) {
+  // merchantUid는 폴백 조회 힌트(선택) — 서버는 포트원 응답 imp_uid 일치를 재검증한다.
+  const { data } = await api.post('/payments/complete', { impUid, merchantUid: merchantUid || undefined });
   return data;
 }
 

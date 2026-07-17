@@ -35,7 +35,7 @@ async function sweepStalePending() {
     try {
       const pmt = await portone.findPayment(order.orderNumber);
       if (pmt && pmt.status === 'paid') {
-        await verifyAndCompletePayment(pmt.imp_uid);
+        await verifyAndCompletePayment(pmt.imp_uid, { merchantUidHint: order.orderNumber });
       } else if (pmt && pmt.status === 'ready') {
         continue; // 아직 결제창 진행 중일 수 있음 — 다음 사이클
       } else {
