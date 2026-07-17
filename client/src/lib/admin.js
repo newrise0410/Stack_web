@@ -67,6 +67,23 @@ export async function patchProduct(slug, body) {
   return data;
 }
 
+// ── 주문 일괄·집계 ──────────────────────────────────────────
+export const COURIERS = ['CJ대한통운', '우체국택배', '한진택배', '롯데택배', '로젠택배', '기타'];
+export async function fetchOrderCounts() { const { data } = await api.get('/orders/admin/counts'); return data; }
+export async function bulkOrderStatus(body) { const { data } = await api.post('/orders/bulk/status', body); return data; }
+export async function bulkTracking(rows) { const { data } = await api.post('/orders/bulk/tracking', { rows }); return data; }
+export async function fetchProductionSummary() { const { data } = await api.get('/orders/admin/production-summary'); return data; }
+export async function fetchOrdersBatch(ids) { const { data } = await api.get('/orders/admin/batch', { params: { ids: ids.join(',') } }); return data.items; }
+export async function downloadOrdersCsv(params = {}) {
+  const res = await api.get('/orders/admin/export', { params, responseType: 'blob' });
+  const url = URL.createObjectURL(res.data);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `orders-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ── 리뷰 관리 ──────────────────────────────────────────────
 export async function fetchAdminReviews(params = {}) {
   const { data } = await api.get('/reviews/admin', { params });
