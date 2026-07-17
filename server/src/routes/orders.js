@@ -4,6 +4,7 @@ import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import * as orderController from '../controllers/orderController.js';
 import * as orderBulkController from '../controllers/orderBulkController.js';
+import * as orderExportController from '../controllers/orderExportController.js';
 
 const router = Router();
 
@@ -21,6 +22,7 @@ router.post('/bulk/tracking', requireAuth, requireAdmin, asyncHandler(orderBulkC
 router.get('/admin/counts', requireAuth, requireAdmin, asyncHandler(orderController.getOrderCounts));
 router.get('/admin/production-summary', requireAuth, requireAdmin, asyncHandler(orderController.getProductionSummary));
 router.get('/admin/batch', requireAuth, requireAdmin, asyncHandler(orderController.getOrdersBatch));
+router.get('/admin/export', requireAuth, requireAdmin, asyncHandler(orderExportController.exportOrdersCsv));
 router.get('/admin', requireAuth, requireAdmin, asyncHandler(orderController.listAllOrders));
 router.post('/:id/cancel', requireAuth, asyncHandler(orderController.cancelOrder));
 router.patch('/:id/status', requireAuth, requireAdmin, asyncHandler(orderController.updateOrderStatus));

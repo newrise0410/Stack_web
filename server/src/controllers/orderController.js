@@ -344,17 +344,15 @@ export async function getOrdersBatch(req, res) {
 
 // 전체 주문 목록 — GET /orders/admin (admin). ?status=&from=&to=&q=&product=&page=&limit=
 const ORDER_STATES = ['pending', 'paid', 'preparing', 'shipped', 'delivered', 'cancelled'];
-export async function listAllOrders(req, res) {
-  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 30));
 
+// listAllOrders·export가 공유하는 관리자 주문 필터 빌더 — 해석 규칙이 두 벌이 되지 않게.
+export function buildAdminOrderFilter(query) {
   const filter = {};
-  const status = String(req.query.status || '');
+  const status = String(query.status || '');
   if (ORDER_STATES.includes(status)) filter.status = status;
 
-  const from = req.query.from ? new Date(String(req.query.from)) : null;
-  const to = req.query.to ? new Date(String(req.query.to)) : null;
-  // from/to 모두 서버 로컬(TZ=Asia/Seoul) 하루 경계로 정규화해 기준을 맞춘다
+  const from = query.from ? new Date(String(query.from)) : null;
+  const to = query.to ? new Date(String(query.to)) : null;
   if (from && !Number.isNaN(from.getTime())) {
     from.setHours(0, 0, 0, 0);
     filter.createdAt = { ...(filter.createdAt || {}), $gte: from };
@@ -364,14 +362,22 @@ export async function listAllOrders(req, res) {
     filter.createdAt = { ...(filter.createdAt || {}), $lte: to };
   }
 
-  const q = String(req.query.q || '').trim();
+  const q = String(query.q || '').trim();
   if (q) {
     const rx = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
     filter.$or = [{ orderNumber: rx }, { 'shippingAddress.recipient': rx }];
   }
 
-  const product = String(req.query.product || '').trim();
+  const product = String(query.product || '').trim();
   if (product) filter['items.slug'] = product;
+  return filter;
+}
+
+export async function listAllOrders(req, res) {
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 30));
+
+  const filter = buildAdminOrderFilter(req.query);
 
   const [items, total] = await Promise.all([
     Order.find(filter).populate('user', 'name email').sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit),
