@@ -1,4 +1,4 @@
-import Order from '../models/Order.js';
+import Order, { SALES_STATES } from '../models/Order.js';
 import User from '../models/User.js';
 import Product from '../models/Product.js';
 import PointTransaction from '../models/PointTransaction.js';
@@ -22,15 +22,16 @@ export async function getStats(req, res) {
 
   const [orderAgg, productAgg, memberCounts] = await Promise.all([
     Order.aggregate([
+      { $addFields: { salesDate: { $ifNull: ['$payment.paidAt', '$createdAt'] } } },
       {
         $facet: {
           byStatus: [{ $group: { _id: '$status', n: { $sum: 1 } } }],
           salesToday: [
-            { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: today } } },
+            { $match: { status: { $in: SALES_STATES }, salesDate: { $gte: today } } },
             { $group: { _id: null, s: { $sum: '$amounts.grandTotal' } } },
           ],
           salesMonth: [
-            { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: month } } },
+            { $match: { status: { $in: SALES_STATES }, salesDate: { $gte: month } } },
             { $group: { _id: null, s: { $sum: '$amounts.grandTotal' } } },
           ],
           recent: [
@@ -110,11 +111,12 @@ export async function getAnalytics(req, res) {
   const start = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), first.getUTCDate()) - 9 * 3600 * 1000);
 
   const [agg] = await Order.aggregate([
-    { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: start } } },
+    { $addFields: { salesDate: { $ifNull: ['$payment.paidAt', '$createdAt'] } } },
+    { $match: { status: { $in: SALES_STATES }, salesDate: { $gte: start } } },
     {
       $facet: {
         series: [
-          { $group: { _id: { $dateToString: { format: fmt, date: '$createdAt', timezone: TZ } }, revenue: { $sum: '$amounts.grandTotal' }, orders: { $sum: 1 } } },
+          { $group: { _id: { $dateToString: { format: fmt, date: '$salesDate', timezone: TZ } }, revenue: { $sum: '$amounts.grandTotal' }, orders: { $sum: 1 } } },
           { $sort: { _id: 1 } },
         ],
         bestSellers: [
@@ -156,7 +158,7 @@ export async function getMember(req, res) {
   if (!user) return res.status(404).json({ message: '회원을 찾을 수 없습니다.' });
   const orders = await Order.find({ user: user._id }).sort({ createdAt: -1 });
   const totalSpent = orders
-    .filter((o) => o.status !== 'cancelled')
+    .filter((o) => SALES_STATES.includes(o.status))
     .reduce((a, o) => a + o.amounts.grandTotal, 0);
   // 적립금 잔액 + 최근 내역
   const pointTransactions = await PointTransaction.find({ user: user._id }).sort({ createdAt: -1, _id: -1 }).limit(20);
