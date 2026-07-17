@@ -8,7 +8,8 @@ import StatusBadge from '../../components/admin/StatusBadge.jsx';
 // 백엔드 TRANSITIONS와 동일 (현재 상태에서 가능한 다음 상태)
 // shipped→shipped는 송장 수정용(백엔드 동일상태 재요청 허용)
 const NEXT = {
-  pending: ['paid', 'cancelled'],
+  // pending→paid는 결제 검증(verifier) 전용 — 관리자 수동 전환 금지
+  pending: ['cancelled'],
   paid: ['preparing', 'cancelled'],
   preparing: ['shipped', 'cancelled'],
   shipped: ['delivered', 'shipped'],
@@ -57,8 +58,8 @@ export default function OrderDetail() {
         body.trackingNumber = tracking.trim();
       }
       const updated = await setOrderStatus(id, body);
-      apply(updated);
-      toast.success('주문 상태를 변경했습니다.');
+      apply(updated.order || updated);
+      toast.success(updated.message || '주문 상태를 변경했습니다.');
     } catch (e) {
       toast.error(e.response?.data?.message || '상태 변경에 실패했습니다.');
     } finally {
@@ -77,7 +78,15 @@ export default function OrderDetail() {
       <div className="mt-3 flex items-center gap-3">
         <h1 className="text-2xl font-bold tracking-tight">{o.orderNumber}</h1>
         <StatusBadge status={o.status} />
+        {o.payment?.refund?.status && o.payment.refund.status !== 'none' && (
+          <span className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${o.payment.refund.status === 'review' ? 'bg-sale/10 text-sale' : 'bg-tint text-mute'}`}>
+            환불 {({ requested: '요청됨', processing: '처리 중', done: '완료', review: '확인 필요' })[o.payment.refund.status]}
+          </span>
+        )}
       </div>
+      {o.payment?.refund?.status === 'review' && (
+        <p className="mt-1 text-[12px] text-sale">{o.payment.refund.reason}</p>
+      )}
       <p className="mt-1 text-[13px] text-mute">{o.createdAt?.slice(0, 16).replace('T', ' ')}</p>
 
       <section className="mt-6 grid gap-6 md:grid-cols-2">
@@ -118,6 +127,17 @@ export default function OrderDetail() {
           <span>결제금액</span>
           <span>{won(o.amounts.grandTotal)}원</span>
         </div>
+        {o.payment?.impUid && (
+          <div className="mt-1 flex justify-between text-[12px] text-mute">
+            <span>결제(포트원)</span>
+            <span>
+              {o.payment.pg || 'card'} · {o.payment.impUid}
+              {o.payment.receiptUrl && (
+                <a href={o.payment.receiptUrl} target="_blank" rel="noreferrer" className="ml-2 underline-offset-2 hover:underline">영수증</a>
+              )}
+            </span>
+          </div>
+        )}
       </section>
 
       {showTracking && (

@@ -236,7 +236,7 @@ const STATUS_LABEL = {
   cancelled: '취소',
 };
 
-const CANCELLABLE = ['paid', 'preparing'];
+const CANCELLABLE = ['pending', 'paid', 'preparing'];
 
 function OrdersTab() {
   const [orders, setOrders] = useState([]);
@@ -251,10 +251,13 @@ function OrdersTab() {
   }, []);
 
   const onCancel = async (id) => {
-    if (!window.confirm('이 주문을 취소하시겠어요?')) return;
+    if (!window.confirm('이 주문을 취소하시겠어요?\n(결제된 주문은 전액 환불 후 취소됩니다)')) return;
     try {
-      const updated = await cancelOrder(id);
+      const d = await cancelOrder(id);
+      const updated = d.order || d; // 202는 {message, order}, 200은 주문 자체
       setOrders((prev) => prev.map((o) => (o._id === id ? updated : o)));
+      if (d.message) window.alert(d.message);
+      else if (updated.status === 'paid') window.alert('확인 결과 결제가 완료된 주문입니다.');
     } catch (e) {
       window.alert(e.response?.data?.message || '주문 취소에 실패했습니다.');
     }
@@ -296,6 +299,14 @@ function OrdersTab() {
               <span className={`font-medium ${o.status === 'cancelled' ? 'text-faint' : 'text-ink'}`}>
                 {STATUS_LABEL[o.status] || o.status}
               </span>
+              {['requested', 'processing'].includes(o.payment?.refund?.status) && o.status !== 'cancelled' && (
+                <span className="rounded-full bg-tint px-2 py-0.5 text-[11px] text-mute">환불 처리 중</span>
+              )}
+              {o.payment?.receiptUrl && (
+                <a href={o.payment.receiptUrl} target="_blank" rel="noreferrer" className="text-[12px] text-mute underline-offset-2 hover:underline">
+                  영수증
+                </a>
+              )}
               {CANCELLABLE.includes(o.status) && (
                 <button onClick={() => onCancel(o._id)} className="text-[12px] text-mute underline-offset-2 hover:text-sale hover:underline">
                   주문 취소
