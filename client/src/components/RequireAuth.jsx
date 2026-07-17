@@ -14,7 +14,7 @@ export default function RequireAuth({ children }) {
     );
   }
   if (!user) {
-    return <Navigate to="/login" state={{ from: loc.pathname }} replace />;
+    return <Navigate to="/login" state={{ from: loc.pathname + loc.search }} replace />;
   }
   return children;
 }

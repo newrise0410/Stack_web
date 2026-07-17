@@ -21,6 +21,7 @@ import EmailsAdmin from './pages/admin/EmailsAdmin.jsx';
 import CouponsAdmin from './pages/admin/CouponsAdmin.jsx';
 import Cart from './pages/Cart.jsx';
 import Checkout from './pages/Checkout.jsx';
+import CheckoutComplete from './pages/CheckoutComplete.jsx';
 import CategoryList from './pages/CategoryList.jsx';
 import Search from './pages/Search.jsx';
 
@@ -41,6 +42,14 @@ export default function App() {
           element={
             <RequireAuth>
               <Checkout />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/checkout/complete"
+          element={
+            <RequireAuth>
+              <CheckoutComplete />
             </RequireAuth>
           }
         />
