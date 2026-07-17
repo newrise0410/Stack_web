@@ -3,7 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useCart } from '../lib/cart.jsx';
 import { useAuth } from '../lib/auth.jsx';
 import { fetchProductBySlug } from '../lib/products.js';
-import { createOrder } from '../lib/orders.js';
+import { createOrder, cancelOrder } from '../lib/orders.js';
+import { requestPortonePay, completePayment, savePayContext, clearPayContext } from '../lib/payments.js';
 import { fetchAvailableCoupons, claimCoupon } from '../lib/coupon.js';
 import { fetchMyPoints } from '../lib/points.js';
 import { won } from '../lib/format.js';
@@ -171,16 +172,24 @@ export default function Checkout() {
 
   const selectedAddr = addresses.find((a) => String(a._id) === addrId);
 
+  // 성공 마무리 공통 — 장바구니 제거는 서버가 paid를 확인한 뒤에만
+  const finishPaid = (order) => {
+    rows.forEach((r) => remove(r.id, r.option));
+    idemKeyRef.current = null;
+    clearPayContext();
+    setDone(order);
+  };
+
   const onPay = async () => {
     setErr('');
     if (!selectedAddr) return setErr('배송지를 선택해주세요.');
-    // 재시도 시 같은 키를 재사용해 서버가 중복 주문을 만들지 않게 한다(성공 시 아래에서 리셋).
     if (!idemKeyRef.current) {
       idemKeyRef.current = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     }
     setBusy(true);
     try {
-      const order = await createOrder(
+      // 1) 서버 선주문(pending) — 금액은 전부 서버 계산
+      const { order, checkout } = await createOrder(
         {
           items: rows.map((r) => ({ slug: r.id, qty: r.qty, option: r.option })),
           couponCode: selectedCoupon ? couponCode : undefined,
@@ -196,11 +205,65 @@ export default function Checkout() {
         },
         idemKeyRef.current,
       );
-      // 주문된 라인만 장바구니에서 제거 — 품절로 제외된(missing) 라인은 남겨둔다.
-      rows.forEach((r) => remove(r.id, r.option));
-      idemKeyRef.current = null; // 성공 → 다음 주문은 새 키
-      setDone(order);
+
+      // 0원(포인트 전액) — 결제창 없이 완료
+      if (!checkout) return finishPaid(order);
+
+      // 모바일 리다이렉트/새로고침 대비 컨텍스트 보관
+      savePayContext({
+        orderId: checkout.orderId,
+        orderNumber: checkout.orderNumber,
+        idemKey: idemKeyRef.current,
+        lines: rows.map((r) => ({ id: r.id, option: r.option })),
+      });
+
+      // 2) 포트원 결제창
+      let rsp;
+      try {
+        rsp = await requestPortonePay({
+          checkout,
+          buyer: {
+            email: user?.email,
+            name: selectedAddr.recipient,
+            tel: selectedAddr.phone,
+            addr: `${selectedAddr.address1} ${selectedAddr.address2 || ''}`.trim(),
+            postcode: selectedAddr.zipcode,
+          },
+        });
+      } catch (payErr) {
+        // 창닫힘/실패 — 서버가 결제 존재를 선확인 후 취소한다(청구-취소 경합 차단)
+        try {
+          const cancelled = await cancelOrder(checkout.orderId);
+          if (cancelled?.status === 'paid') return finishPaid(cancelled); // 실제론 승인돼 있었음
+          idemKeyRef.current = null; // 취소 확정 → 다음 시도는 새 주문
+          clearPayContext();
+          setErr(payErr.message);
+        } catch (cx) {
+          if (cx.response?.status === 409) setErr('결제 확인이 진행 중입니다. 마이페이지에서 주문 상태를 확인해주세요.');
+          else setErr(payErr.message);
+        }
+        return undefined;
+      }
+
+      // 3) 서버 검증 — 성공 판정은 서버만 한다
+      try {
+        const d = await completePayment(rsp.imp_uid);
+        return finishPaid(d.order);
+      } catch (ve) {
+        if (!ve.response) {
+          // 네트워크 유실 — 주문을 취소하지 않는다(웹훅/재확인이 확정할 수 있음)
+          setErr('결제 확인이 지연되고 있습니다. 잠시 후 마이페이지에서 주문 상태를 확인해주세요.');
+        } else if (ve.response.status === 400) {
+          idemKeyRef.current = null;
+          clearPayContext();
+          setErr(ve.response.data?.message || '결제에 실패했습니다.');
+        } else {
+          setErr(ve.response.data?.message || '결제 확인에 실패했습니다.');
+        }
+        return undefined;
+      }
     } catch (e) {
+      if (e.response?.status === 409) idemKeyRef.current = null; // 키 충돌/취소된 키 — 새 키로 재시도 가능
       setErr(e.response?.data?.message || '결제에 실패했습니다.');
     } finally {
       setBusy(false);
@@ -456,7 +519,7 @@ export default function Checkout() {
             >
               {busy ? '결제 중…' : `${won(grandTotal)}원 결제하기`}
             </button>
-            <p className="mt-3 text-center text-[11px] text-faint">스터디용 모의 결제 (실제 청구 없음)</p>
+            <p className="mt-3 text-center text-[11px] text-faint">KG이니시스 테스트 결제 — 실제 청구되지 않습니다</p>
           </div>
         </aside>
       </div>
