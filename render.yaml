@@ -32,3 +32,8 @@ services:
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
+      # 포트원(아임포트) v1 REST API 키
+      - key: PORTONE_IMP_KEY
+        sync: false # 포트원 REST API 키
+      - key: PORTONE_IMP_SECRET
+        sync: false # 포트원 REST API Secret

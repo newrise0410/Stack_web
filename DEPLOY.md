@@ -93,6 +93,8 @@ MONGODB_URI="<Atlas 문자열>" CLOUDINARY_URL="<cloudinary URL>" SWEEP_CONFIRM=
    | `CLIENT_ORIGIN` | *(3단계 Vercel 주소 나온 뒤 입력)* |
    | `JWT_EXPIRES_IN` | `7d` (기본값) |
    | `CLOUDINARY_URL` | Cloudinary 대시보드 → API Environment variable (`cloudinary://<key>:<secret>@<cloud>`) *(선택 — 미설정 시 관리자 이미지 업로드만 503)* |
+   | `PORTONE_IMP_KEY` | 포트원 REST API Key (콘솔 > 결제연동 > 식별코드·API Keys) |
+   | `PORTONE_IMP_SECRET` | 포트원 REST API Secret |
 
    ```bash
    openssl rand -hex 32   # JWT_SECRET 생성용
@@ -134,7 +136,20 @@ MONGODB_URI="<Atlas 문자열>" CLOUDINARY_URL="<cloudinary URL>" SWEEP_CONFIRM=
 
 ---
 
-## 5. 확인
+## 5. 포트원(아임포트) 결제 설정
+
+1. https://admin.portone.io 가입 → 결제 연동 > 연동 정보 > **V1 API** 키 확인
+   - `가맹점 식별코드(imp...)` → 프론트 `VITE_PORTONE_IMP_CODE`
+   - `REST API Key/Secret` → 백엔드 `PORTONE_IMP_KEY` / `PORTONE_IMP_SECRET`
+2. 결제 연동 > 채널 관리 → **KG이니시스** 테스트 채널 생성
+   - 채널키를 쓰려면 프론트 `VITE_PORTONE_CHANNEL_KEY`에 설정(미설정 시 pg:'html5_inicis' 사용)
+3. 웹훅: 결제 연동 > 웹훅 관리 → URL `https://<render-domain>/payments/webhook`, 버전 v1
+   - 로컬 개발은 웹훅 없이도 동작(클라이언트 콜백 검증 + 60초 reconciler)
+4. 테스트 결제는 실제 승인 후 **당일 자동 취소**된다(실청구 없음).
+
+---
+
+## 6. 확인
 
 - Vercel 주소 접속 → 홈에 상품 노출 (Atlas에서 옴)
 - 회원가입 / 로그인 / 소셜로그인 → 환영페이지 → 메인
