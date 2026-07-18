@@ -122,10 +122,17 @@ export async function updateProduct(req, res) {
 }
 
 // DELETE — DELETE /products/:slug (admin)
+// 소프트 삭제 — status를 'archived'로 전환한다. 하드 삭제가 아닌 이유:
+// 이전엔 findOneAndDelete + cleanupOrphanImages로 Cloudinary 원본까지 지웠는데(회수 불가),
+// window.confirm 하나만 통과하면 실수 한 번에 이미지가 영구 소실됐다. archived는 이미
+// 공개 조회(getProduct/listProducts)에서 숨겨지고 관리자가 status 필터로 되돌릴 수 있어,
+// 별도 필드 없이 곧 '복구 가능한 삭제'가 된다. 고아 이미지는 sweep:images 스크립트가 따로 정리.
 export async function deleteProduct(req, res) {
-  const removed = await Product.findOneAndDelete({ slug: req.params.slug });
-  if (!removed) return res.status(404).json({ message: '상품을 찾을 수 없습니다.' });
-  // 삭제된 상품의 Cloudinary 자산 정리(best-effort) — DB 참조가 사라지면 회수 불가
-  await cleanupOrphanImages(removed.images);
+  const archived = await Product.findOneAndUpdate(
+    { slug: req.params.slug },
+    { $set: { status: 'archived' } },
+    { new: true },
+  );
+  if (!archived) return res.status(404).json({ message: '상품을 찾을 수 없습니다.' });
   res.status(204).end();
 }

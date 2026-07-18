@@ -43,6 +43,7 @@ router.post('/members/:id/coupons', requireAuth, requireAdmin, asyncHandler(coup
 router.post('/members/:id/points', requireAuth, requireAdmin, asyncHandler(pointController.adjustMemberPoints));
 
 router.get('/members/:id', requireAuth, requireAdmin, asyncHandler(adminController.getMember));
+router.get('/members/:id/points', requireAuth, requireAdmin, asyncHandler(adminController.listMemberPoints));
 
 // 업로드 남용 방지: 관리자당 분당 20회(탈취 토큰의 free-tier 소진·메모리 압박 차단). requireAuth 뒤라 user id로 키.
 const uploadLimiter = rateLimit({

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { fetchMember, setUserRole, setUserStatus, setUserGrade } from '../../lib/admin.js';
 import { fetchAdminCoupons, issueCouponToMember, couponBenefitText } from '../../lib/coupon.js';
-import { adjustMemberPoints, POINT_TYPE_LABEL } from '../../lib/points.js';
+import { adjustMemberPoints, fetchMemberPoints, POINT_TYPE_LABEL } from '../../lib/points.js';
 import { useToast } from '../../lib/toast.jsx';
 import { won } from '../../lib/format.js';
 import StatCard from '../../components/admin/StatCard.jsx';
@@ -13,11 +13,29 @@ const STATUS_LABEL = { active: '활성', suspended: '정지됨', withdrawn: '탈
 //    고객에게 등급 혜택을 고지하려면 표시광고상 이행 의무가 생긴다는 점을 알고 바꿀 것.
 const GRADE_LABEL = { basic: '일반', silver: '실버', gold: '골드' };
 
-function PointsSection({ userId, balance, transactions, onChanged }) {
+function PointsSection({ userId, balance, transactions, total = 0, pageSize = 20, onChanged }) {
   const toast = useToast();
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  // 첫 페이지는 getMember가 준 transactions. '더 보기'로 받은 이후 페이지를 여기 누적한다(P2-12).
+  const [more, setMore] = useState([]);
+  const [nextPage, setNextPage] = useState(2);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const rows = [...transactions, ...more];
+
+  const loadMore = async () => {
+    setLoadingMore(true);
+    try {
+      const { items } = await fetchMemberPoints(userId, nextPage);
+      setMore((prev) => [...prev, ...items]);
+      setNextPage((p) => p + 1);
+    } catch {
+      toast.error('적립금 내역을 더 불러오지 못했습니다.');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const adjust = async (sign) => {
     const n = parseInt(amount, 10);
@@ -53,18 +71,55 @@ function PointsSection({ userId, balance, transactions, onChanged }) {
         <button onClick={() => adjust(1)} disabled={busy} className="border border-ink px-4 py-2 text-sm hover:bg-tint disabled:opacity-50">지급 +</button>
         <button onClick={() => adjust(-1)} disabled={busy} className="border border-line px-4 py-2 text-sm text-sale hover:bg-tint disabled:opacity-50">차감 −</button>
       </div>
-      {transactions.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="text-[13px] text-mute">적립금 내역이 없습니다.</p>
       ) : (
+        <>
+          <ul className="divide-y divide-line border-y border-line text-sm">
+            {rows.map((t) => (
+              <li key={t._id} className="flex items-center justify-between py-2.5">
+                <span className="text-[12px] text-mute">{POINT_TYPE_LABEL[t.type] || t.type}
+                  {t.note && <span className="ml-1 text-faint">· {t.note}</span>}
+                </span>
+                <span className="flex items-center gap-3">
+                  <span className={t.amount >= 0 ? 'text-ink' : 'text-sale'}>{t.amount >= 0 ? '+' : ''}{won(t.amount)}P</span>
+                  <span className="w-24 text-right text-[12px] text-faint">{t.createdAt?.slice(0, 10)}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          {rows.length < total && (
+            <button onClick={loadMore} disabled={loadingMore}
+              className="mt-3 w-full border border-line py-2 text-[13px] text-mute hover:border-ink disabled:opacity-50">
+              {loadingMore ? '불러오는 중…' : `더 보기 (${rows.length}/${total})`}
+            </button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+// 보유 쿠폰 현황 — 발급만 되고 조회 수단이 없어 중복 발급·사용 여부를 알 수 없었다(P2-9).
+function HeldCoupons({ coupons }) {
+  return (
+    <section className="mt-10">
+      <h2 className="mb-3 text-lg font-bold">보유 쿠폰 <span className="text-sm font-normal text-mute">({coupons.length})</span></h2>
+      {coupons.length === 0 ? (
+        <p className="text-[13px] text-mute">보유한 쿠폰이 없습니다.</p>
+      ) : (
         <ul className="divide-y divide-line border-y border-line text-sm">
-          {transactions.map((t) => (
-            <li key={t._id} className="flex items-center justify-between py-2.5">
-              <span className="text-[12px] text-mute">{POINT_TYPE_LABEL[t.type] || t.type}
-                {t.note && <span className="ml-1 text-faint">· {t.note}</span>}
+          {coupons.map((uc) => (
+            <li key={uc._id} className="flex items-center justify-between py-2.5">
+              <span className="min-w-0">
+                <span className="font-mono">{uc.coupon?.code || '(삭제된 쿠폰)'}</span>
+                {uc.coupon?.name && <span className="ml-2 text-[12px] text-mute">{uc.coupon.name}</span>}
+                <span className="ml-2 text-[11px] text-faint">{uc.issuedBy === 'admin' ? '관리자 발급' : '직접 수령'}</span>
               </span>
-              <span className="flex items-center gap-3">
-                <span className={t.amount >= 0 ? 'text-ink' : 'text-sale'}>{t.amount >= 0 ? '+' : ''}{won(t.amount)}P</span>
-                <span className="w-24 text-right text-[12px] text-faint">{t.createdAt?.slice(0, 10)}</span>
+              <span className="shrink-0 text-[12px]">
+                {uc.used
+                  ? <span className="text-mute">사용함 {uc.usedAt ? `· ${uc.usedAt.slice(0, 10)}` : ''}</span>
+                  : <span className="text-ink">미사용</span>}
               </span>
             </li>
           ))}
@@ -190,7 +245,7 @@ export default function MemberDetail() {
 
   if (err) return <p className="py-12 text-center text-mute">{err}</p>;
   if (!d) return <p className="py-12 text-center text-mute">불러오는 중…</p>;
-  const { user, orders, orderCount, totalSpent, points = 0, pointTransactions = [] } = d;
+  const { user, orders, orderCount, totalSpent, points = 0, pointTransactions = [], pointsTotal = 0, pointsPageSize = 20, userCoupons = [] } = d;
   const withdrawn = user.status === 'withdrawn';
 
   return (
@@ -268,7 +323,10 @@ export default function MemberDetail() {
         )}
       </section>
 
-      <PointsSection userId={user._id} balance={points} transactions={pointTransactions} onChanged={reload} />
+      <PointsSection userId={user._id} balance={points} transactions={pointTransactions}
+        total={pointsTotal} pageSize={pointsPageSize} onChanged={reload} />
+
+      <HeldCoupons coupons={userCoupons} />
 
       <IssueCoupon userId={user._id} />
     </div>

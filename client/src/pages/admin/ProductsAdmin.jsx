@@ -262,10 +262,11 @@ export default function ProductsAdmin() {
 
   const reload = () => { setEditing(null); load(); };
   const remove = async (slug) => {
-    if (!window.confirm(`'${slug}' 상품을 삭제할까요?`)) return;
+    // 소프트 삭제 — 보관(archived) 처리라 목록에서 감춰지되 되돌릴 수 있다(이미지도 보존).
+    if (!window.confirm(`'${slug}' 상품을 삭제할까요?\n\n보관 처리되어 스토어에서 숨겨집니다. 상태 필터 '보관'에서 되돌릴 수 있습니다.`)) return;
     try {
       await api.delete(`/products/${slug}`);
-      toast.success('상품을 삭제했습니다.');
+      toast.success('상품을 보관 처리했습니다.');
       // 현재 페이지의 마지막 항목을 지웠고 첫 페이지가 아니면 이전 페이지로(빈 페이지 갇힘 방지)
       if (data.items.length === 1 && page > 1) patch({ page: String(page - 1) });
       else load();

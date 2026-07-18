@@ -4,6 +4,7 @@ import Product from '../models/Product.js';
 import PointTransaction from '../models/PointTransaction.js';
 import OrderEvent from '../models/OrderEvent.js';
 import WebhookLog from '../models/WebhookLog.js';
+import UserCoupon from '../models/UserCoupon.js';
 import { getLastCycle } from '../services/paymentJobs.js';
 
 function dayStart(d = new Date()) {
@@ -156,6 +157,8 @@ export async function getAnalytics(req, res) {
 }
 
 // 회원 상세 — GET /admin/members/:id (admin). 프로필 + 주문 + 집계.
+const POINTS_PAGE = 20;
+
 export async function getMember(req, res) {
   // 생년월일·성별 제외 — 회원 관리(주문·적립금·쿠폰)에 필요한 정보가 아니다. 열람 최소화.
   const user = await User.findById(req.params.id).select('-birthday -gender');
@@ -164,8 +167,15 @@ export async function getMember(req, res) {
   const totalSpent = orders
     .filter((o) => SALES_STATES.includes(o.status))
     .reduce((a, o) => a + o.amounts.grandTotal, 0);
-  // 적립금 잔액 + 최근 내역
-  const pointTransactions = await PointTransaction.find({ user: user._id }).sort({ createdAt: -1, _id: -1 }).limit(20);
+  // 적립금 잔액 + 첫 페이지 내역. 전체 건수도 함께 줘 클라가 '더 보기' 여부를 판단한다(P2-12).
+  const [pointTransactions, pointsTotal, userCoupons] = await Promise.all([
+    PointTransaction.find({ user: user._id }).sort({ createdAt: -1, _id: -1 }).limit(POINTS_PAGE),
+    PointTransaction.countDocuments({ user: user._id }),
+    // 보유 쿠폰 — 발급만 되고 조회 수단이 없었다(P2-9). 중복 발급·사용 여부를 관리자가 본다.
+    UserCoupon.find({ user: user._id })
+      .sort({ createdAt: -1 })
+      .populate('coupon', 'code name discountType discountValue'),
+  ]);
   res.json({
     user,
     orders,
@@ -173,7 +183,23 @@ export async function getMember(req, res) {
     totalSpent,
     points: user.points || 0,
     pointTransactions,
+    pointsTotal,
+    pointsPageSize: POINTS_PAGE,
+    userCoupons,
   });
+}
+
+// 회원 적립금 내역 페이징 — GET /admin/members/:id/points?page= (P2-12)
+// getMember는 첫 20건만 준다. 그 이상을 '더 보기'로 이어 받는다.
+export async function listMemberPoints(req, res) {
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || POINTS_PAGE));
+  const filter = { user: req.params.id };
+  const [items, total] = await Promise.all([
+    PointTransaction.find(filter).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit),
+    PointTransaction.countDocuments(filter),
+  ]);
+  res.json({ page, limit, total, items });
 }
 
 // 운영 상태 — GET /admin/ops
