@@ -12,7 +12,7 @@ const inputCls =
   'w-full border border-line px-3 py-2 text-sm focus:border-ink focus:outline-none';
 const label = 'mb-1 block text-[12px] text-mute';
 
-const TYPES = ['Table', 'Pendant', 'MoonWall', 'Tech', 'Clock', 'Shelf'];
+const TYPES = ['Table', 'Pendant', 'MoonWall', 'Tech', 'Clock', 'Shelf', 'Planter'];
 const STATUSES = ['active', 'draft', 'soldout', 'archived'];
 const BADGE_OPTS = ['NEW', 'BEST', 'SALE'];
 const SORTS = [

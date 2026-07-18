@@ -11,6 +11,7 @@ const CATS = [
   { label: 'TECH', to: '/category/Tech' },
   { label: 'CLOCK', to: '/category/Clock' },
   { label: 'SHELF', to: '/category/Shelf' },
+  { label: 'PLANT', to: '/category/Planter' },
   { label: 'SHOWCASE', to: '/category/all' },
   { label: 'PT', to: '/#pt' },
 ];

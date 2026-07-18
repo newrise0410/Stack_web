@@ -41,6 +41,7 @@ const TYPES = [
   { id: 'tech', type: 'Tech', title: '테크 · 충전', tag: 'Desk Tech' },
   { id: 'clock', type: 'Clock', title: '데스크 클락', tag: 'Desk Clocks' },
   { id: 'shelf', type: 'Shelf', title: '선반 · 수납', tag: 'Wall Shelves' },
+  { id: 'planter', type: 'Planter', title: '화분 · 화병', tag: 'Planters & Vases' },
 ];
 
 export default function Home() {

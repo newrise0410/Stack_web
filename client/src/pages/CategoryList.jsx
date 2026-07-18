@@ -12,6 +12,7 @@ const TYPE_LABEL = {
   Tech: '테크 · 충전',
   Clock: '데스크 클락',
   Shelf: '선반 · 수납',
+  Planter: '화분 · 화병',
   all: '전체 상품',
 };
 

@@ -28,6 +28,7 @@ const FOLDER_CATEGORY = {
   apple: 'Tech',
   'desk clock': 'Clock',
   shelf: 'Shelf',
+  planter: 'Planter',
 };
 
 const NEXT_DATA_RE =
