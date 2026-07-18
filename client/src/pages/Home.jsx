@@ -40,6 +40,7 @@ const TYPES = [
   { id: 'moon', type: 'MoonWall', title: '문 · 월 램프', tag: 'Moon & Wall' },
   { id: 'tech', type: 'Tech', title: '테크 · 충전', tag: 'Desk Tech' },
   { id: 'clock', type: 'Clock', title: '데스크 클락', tag: 'Desk Clocks' },
+  { id: 'shelf', type: 'Shelf', title: '선반 · 수납', tag: 'Wall Shelves' },
 ];
 
 export default function Home() {

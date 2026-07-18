@@ -10,6 +10,7 @@ const CATS = [
   { label: 'MOON', to: '/category/MoonWall' },
   { label: 'TECH', to: '/category/Tech' },
   { label: 'CLOCK', to: '/category/Clock' },
+  { label: 'SHELF', to: '/category/Shelf' },
   { label: 'SHOWCASE', to: '/category/all' },
   { label: 'PT', to: '/#pt' },
 ];

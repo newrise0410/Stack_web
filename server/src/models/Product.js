@@ -4,7 +4,7 @@ const { Schema } = mongoose;
 
 // 타입의 단일 원본. 타입을 추가하면 여기 한 줄만 — enum·컨트롤러 화이트리스트·SKU 코드가 파생된다.
 // SKU 코드는 3글자 대문자(SNS-<코드>-001). Order.js의 SALES_STATES가 모델에서 export하는 선례를 따른다.
-export const TYPE_CODE = { Table: 'TBL', Pendant: 'PND', MoonWall: 'MWL', Tech: 'TEC', Clock: 'CLK' };
+export const TYPE_CODE = { Table: 'TBL', Pendant: 'PND', MoonWall: 'MWL', Tech: 'TEC', Clock: 'CLK', Shelf: 'SHF' };
 export const PRODUCT_TYPES = Object.keys(TYPE_CODE);
 
 const specsSchema = new Schema(
@@ -27,9 +27,9 @@ const productSchema = new Schema(
     brand: { type: String, default: "STACK N' STAK" },
     name: { type: String, required: true, trim: true },
     nameKo: { type: String, trim: true },
-    category: { type: String, enum: ['Lighting', 'Tech', 'Clock'], default: 'Lighting' },
+    category: { type: String, enum: ['Lighting', 'Tech', 'Clock', 'Shelf'], default: 'Lighting' },
     // 카탈로그의 단일 탐색 축(헤더 내비·카테고리 페이지가 이 값으로 필터).
-    // Lighting → Table/Pendant/MoonWall, Tech → Tech, Clock → Clock.
+    // Lighting → Table/Pendant/MoonWall, Tech → Tech, Clock → Clock, Shelf → Shelf.
     type: {
       type: String,
       enum: PRODUCT_TYPES,

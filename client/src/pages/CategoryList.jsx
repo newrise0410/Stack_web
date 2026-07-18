@@ -11,6 +11,7 @@ const TYPE_LABEL = {
   MoonWall: '문 · 월 램프',
   Tech: '테크 · 충전',
   Clock: '데스크 클락',
+  Shelf: '선반 · 수납',
   all: '전체 상품',
 };
 

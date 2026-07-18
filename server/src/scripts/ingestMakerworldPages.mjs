@@ -27,6 +27,7 @@ const FOLDER_CATEGORY = {
   lamp: 'Lighting',
   apple: 'Tech',
   'desk clock': 'Clock',
+  shelf: 'Shelf',
 };
 
 const NEXT_DATA_RE =
