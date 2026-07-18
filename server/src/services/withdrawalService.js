@@ -4,6 +4,8 @@ import Review from '../models/Review.js';
 import UserCoupon from '../models/UserCoupon.js';
 import EmailMessage from '../models/EmailMessage.js';
 import OrderEvent from '../models/OrderEvent.js';
+import PointTransaction from '../models/PointTransaction.js';
+import Product from '../models/Product.js';
 import { applyPoints } from './pointService.js';
 import { withTransaction } from '../utils/withTransaction.js';
 
@@ -124,4 +126,67 @@ export async function withdrawUser(userId) {
 
     return User.findById(userId).session(session);
   });
+}
+
+// ── 5년 만료 파기 (전자상거래법 보관기간 종료 후 지체 없이 파기) ──────────────
+//
+// 탈퇴 시 PII는 즉시 파기하지만 주문(계약·대금결제 기록)은 법정 5년 보관을 위해 tombstone과
+// 함께 남긴다. 그 5년이 지나면 보관 근거가 사라지므로 주문·tombstone·연관 데이터를 완전 파기한다.
+// 이게 없으면 소프트 탈퇴가 그냥 영구 보관이 되어 파기 의무를 계속 어긴다.
+//
+// ⚠️ 파괴적이라 자동 60초 잡에 넣지 않는다 — 잘못된 cutoff 한 번이 데이터를 지운다.
+//    guarded 스크립트(npm run purge:withdrawn)로 cron 일 1회 실행을 권장한다.
+//    retentionMs를 주입할 수 있어 테스트는 짧은 보관기간으로 검증한다.
+const RETENTION_MS = 5 * 365 * 24 * 3600 * 1000; // 5년
+
+export async function purgeExpiredWithdrawals({ now = new Date(), retentionMs = RETENTION_MS } = {}) {
+  const cutoff = new Date(now.getTime() - retentionMs);
+  // ⚠️ status를 반드시 함께 건다 — BSON 비교 순서상 Null < Date라 withdrawnAt:{$lte}만 쓰면
+  //    withdrawnAt=null인 정상 회원이 전원 매칭돼 멀쩡한 계정을 지운다.
+  const expired = await User.find(
+    { status: 'withdrawn', withdrawnAt: { $lte: cutoff } },
+    { _id: 1 },
+  );
+
+  let purged = 0;
+  for (const u of expired) {
+    const userId = u._id;
+    // per-user 격리 — 특정 회원이 결정적으로 실패해도 뒤 순번의 만료 회원 파기를 막지 않는다.
+    // (poison 회원이 find 순서상 앞에 있으면 배치 전체가 매 실행 같은 지점에서 멈춘다.)
+    try {
+      const orderIds = await Order.find({ user: userId }, { _id: 1 }).distinct('_id');
+      // 삭제될 리뷰가 달린 상품 — 평점 재계산 대상.
+      const affectedProducts = await Review.find({ user: userId }, { product: 1 }).distinct('product');
+
+      // 리뷰를 먼저 지우고 **곧바로** 평점을 재계산한다. 다른 파괴 연산 뒤로 미루면, 그 사이
+      // 실패 시 리뷰는 이미 사라졌는데 평점은 낡은 채 — 재실행해도 affectedProducts가 빈 배열이라
+      // 영영 수렴하지 못한다(적대 리뷰 CONFIRMED). affectedProducts는 삭제 전에 이미 확보했다.
+      await Review.deleteMany({ user: userId });
+      for (const productId of affectedProducts) {
+        const [agg] = await Review.aggregate([
+          { $match: { product: productId, hidden: { $ne: true } } },
+          { $group: { _id: '$product', avg: { $avg: '$rating' }, count: { $sum: 1 } } },
+        ]);
+        await Product.updateOne(
+          { _id: productId },
+          { ratingAvg: agg ? Math.round(agg.avg * 10) / 10 : 0, ratingCount: agg ? agg.count : 0 },
+        );
+      }
+
+      // 나머지 파기. 메일은 order 기준도 함께(outbox는 user:null).
+      await Promise.all([
+        Order.deleteMany({ user: userId }),
+        PointTransaction.deleteMany({ user: userId }),
+        UserCoupon.deleteMany({ user: userId }),
+        EmailMessage.deleteMany({ $or: [{ user: userId }, { order: { $in: orderIds } }] }),
+        OrderEvent.deleteMany({ order: { $in: orderIds } }),
+      ]);
+      // tombstone 파기 — CAS로 status='withdrawn'인 동안만(그 사이 상태가 바뀌었으면 스킵).
+      const del = await User.deleteOne({ _id: userId, status: 'withdrawn' });
+      if (del.deletedCount) purged += 1;
+    } catch (e) {
+      console.error('[purge] 회원 파기 실패, 건너뜀:', String(userId), e?.message);
+    }
+  }
+  return purged;
 }

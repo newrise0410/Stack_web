@@ -30,7 +30,7 @@ describe('GET /orders/admin/export', () => {
     const text = res.text;
     expect(text.charCodeAt(0)).toBe(0xfeff); // BOM
     const lines = text.slice(1).trim().split('\n');
-    expect(lines[0]).toBe('주문번호,주문일,상태,주문자,수취인,연락처,우편번호,주소,품목,상품합계,쿠폰할인,적립금사용,결제금액,적립예정,택배사,송장번호');
+    expect(lines[0]).toBe('주문번호,주문일,상태,주문자,수취인,연락처,우편번호,주소,품목,SKU,상품합계,쿠폰할인,적립금사용,결제금액,적립예정,택배사,송장번호');
     expect(lines).toHaveLength(2); // 헤더 + paid 1건 (cancelled 필터 제외)
     expect(lines[1]).toContain('20260718-400001');
     expect(lines[1]).toContain('"젠, ""특별판""(Bone)x2"'); // 이스케이프

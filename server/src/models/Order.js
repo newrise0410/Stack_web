@@ -7,6 +7,7 @@ const orderItemSchema = new Schema(
   {
     product: { type: Schema.Types.ObjectId, ref: 'Product' },
     slug: String,
+    sku: { type: String, default: null }, // 주문 시점 SKU 스냅샷(상품 삭제·SKU 변경과 무관하게 불변)
     name: String,
     nameKo: String,
     image: String,

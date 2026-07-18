@@ -1,7 +1,8 @@
-import Product from '../models/Product.js';
+import Product, { PRODUCT_TYPES } from '../models/Product.js';
 import Order from '../models/Order.js';
 import { pick } from '../utils/pick.js';
 import { destroyUnreferenced, publicIdFromUrl } from '../utils/cloudinaryUrl.js';
+import { nextSku } from '../services/skuService.js';
 
 // 후보 URL 중 "더 이상 어디서도 참조하지 않는" Cloudinary 자산만 골라 정리한다.
 // 참조로 인정하는 곳: (1) 다른 상품의 images(복제·수동 입력 공유), (2) 과거 주문의 항목 스냅샷 image
@@ -60,7 +61,7 @@ export async function listProducts(req, res) {
 
 // READ (list, admin) — GET /products/admin?status=&type=&q=&sort=&page=&limit= — 모든 status 대상
 const PRODUCT_STATES = ['active', 'draft', 'soldout', 'archived'];
-const PRODUCT_TYPES = ['Table', 'Pendant', 'MoonWall', 'Tech', 'Clock'];
+// PRODUCT_TYPES는 모델에서 import — 타입 추가 시 한 곳(Product.js TYPE_CODE)만 고치면 파생된다.
 export async function listAllProducts(req, res) {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
@@ -95,8 +96,26 @@ export async function getProduct(req, res) {
 
 // CREATE — POST /products (admin)
 export async function createProduct(req, res) {
-  const product = await Product.create(pick(req.body, FIELDS));
-  res.status(201).json(product);
+  const data = pick(req.body, FIELDS); // sku는 FIELDS에 없음 → 클라 값 무시(서버 생성 전용·불변)
+  if (!PRODUCT_TYPES.includes(data.type)) {
+    return res.status(400).json({ message: '상품 타입을 선택해주세요.' });
+  }
+  // 흔한 실패(slug 중복)를 카운터를 태우기 전에 걸러 구멍을 줄인다 — 위생이지 정합성 보장은 아니다.
+  if (await Product.exists({ slug: data.slug })) {
+    return res.status(409).json({ message: '이미 사용 중인 slug입니다. 다른 값을 입력해주세요.' });
+  }
+  data.sku = await nextSku(data.type);
+  try {
+    const product = await Product.create(data);
+    return res.status(201).json(product);
+  } catch (e) {
+    if (e.code === 11000) { // 경합으로 뚫린 중복 — slug/sku를 구분해 명확히 안내
+      const field = Object.keys(e.keyPattern || {})[0];
+      if (field === 'slug') return res.status(409).json({ message: '이미 사용 중인 slug입니다.' });
+      return res.status(409).json({ message: 'SKU 채번 충돌이 발생했습니다. 다시 시도해주세요.' });
+    }
+    throw e;
+  }
 }
 
 // UPDATE — PATCH /products/:slug (admin)

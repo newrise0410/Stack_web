@@ -95,7 +95,7 @@ export async function createOrder(req, res) {
       return res.status(400).json({ message: `옵션을 선택해주세요: ${p.nameKo || p.name}` });
     }
     orderItems.push({
-      product: p._id, slug: p.slug, name: p.name, nameKo: p.nameKo,
+      product: p._id, slug: p.slug, sku: p.sku || null, name: p.name, nameKo: p.nameKo,
       image: p.images?.[0], option: it.option || null, price: p.price, qty: it.qty,
     });
   }
@@ -312,6 +312,7 @@ export async function getProductionSummary(req, res) {
     {
       $group: {
         _id: { slug: '$items.slug', option: '$items.option' },
+        sku: { $first: '$items.sku' }, // slug와 1:1이라 그룹 키가 아니라 $first
         name: { $first: '$items.name' },
         nameKo: { $first: '$items.nameKo' },
         image: { $first: '$items.image' },
@@ -323,7 +324,7 @@ export async function getProductionSummary(req, res) {
     },
     {
       $project: {
-        _id: 0, slug: '$_id.slug', option: '$_id.option',
+        _id: 0, slug: '$_id.slug', option: '$_id.option', sku: 1,
         name: 1, nameKo: 1, image: 1, paidQty: 1, preparingQty: 1, totalQty: 1,
         orderCount: { $size: '$orders' },
       },

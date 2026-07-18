@@ -45,13 +45,27 @@ await mongoose.connect(uri);
 
 const docs = source.map(toDoc);
 // 원자적 삭제→삽입 대신 slug 기준 upsert로 갱신하면, 중간 실패에도 카탈로그가 비지 않는다(빈 창 제거).
-const ops = docs.map((d) => ({
-  updateOne: { filter: { slug: d.slug }, update: { $set: d }, upsert: true },
-}));
+// status는 $setOnInsert로 — 관리자가 내린 archived/soldout를 시드 재실행이 active로 되살리지 않는다.
+// (소프트삭제가 durable해진 P2-8 이후, $set:d는 삭제한 상품을 조용히 부활시킨다.)
+const ops = docs.map((d) => {
+  const { status, ...rest } = d;
+  return {
+    updateOne: {
+      filter: { slug: d.slug },
+      update: { $set: rest, $setOnInsert: { status } },
+      upsert: true,
+    },
+  };
+});
 await Product.bulkWrite(ops);
 // 소스에서 사라진 상품 정리 — 삭제를 마지막에 배치해 빈 창을 만들지 않는다.
 const slugs = docs.map((d) => d.slug);
 const removed = await Product.deleteMany({ slug: { $nin: slugs } });
 
-console.log(`Seeded ${docs.length} products (removed ${removed.deletedCount} stale).`);
+// bulkWrite/deleteMany 다음에 호출 — 순서 필수. 먼저 부르면 곧 삭제될 상품에 번호를 낭비한다.
+// bulkWrite는 pre('save') 훅을 안 타므로 sku가 안 붙는다 → backfill로 채운다.
+const { backfillProductSkus } = await import('./backfillSkus.js');
+const skusAssigned = await backfillProductSkus();
+
+console.log(`Seeded ${docs.length} products (removed ${removed.deletedCount} stale, SKU +${skusAssigned}).`);
 await mongoose.disconnect();

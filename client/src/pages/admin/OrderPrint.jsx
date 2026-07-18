@@ -60,7 +60,10 @@ export default function OrderPrint() {
             <tbody>
               {o.items.map((it, i) => (
                 <tr key={i} className="border-b border-line">
-                  <td className="py-2 pr-2 font-medium">{it.nameKo || it.name}</td>
+                  <td className="py-2 pr-2">
+                    <span className="font-medium">{it.nameKo || it.name}</span>
+                    {it.sku && <span className="ml-2 font-mono text-[10px] text-mute">{it.sku}</span>}
+                  </td>
                   <td className="py-2 pr-2">{it.option || '-'}</td>
                   <td className="py-2 text-right font-bold">{it.qty}</td>
                 </tr>

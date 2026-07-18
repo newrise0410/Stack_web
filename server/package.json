@@ -13,6 +13,8 @@
     "seed": "node src/seed/seedProducts.js",
     "create:admin": "node src/scripts/createAdmin.mjs",
     "migrate:images": "node src/scripts/migrateImagesToCloudinary.mjs",
+    "backfill:sku": "node src/scripts/backfillSkus.mjs",
+    "purge:withdrawn": "node src/scripts/purgeWithdrawn.mjs",
     "sweep:images": "node src/scripts/sweepOrphanCloudinary.mjs",
     "test": "vitest run",
     "test:watch": "vitest"

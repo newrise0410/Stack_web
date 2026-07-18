@@ -26,6 +26,11 @@ function itemsSummary(items) {
     .join(' / ');
 }
 
+// SKU 요약 — itemsSummary와 반드시 같은 순서로 순회해야 두 컬럼이 항목끼리 정렬된다.
+function skuSummary(items) {
+  return (items || []).map((i) => i.sku || '-').join(' / ');
+}
+
 // CSV 내보내기 — GET /orders/admin/export (admin). 필터는 listAllOrders와 동일 해석.
 export async function exportOrdersCsv(req, res) {
   const filter = buildAdminOrderFilter(req.query);
@@ -45,6 +50,7 @@ export async function exportOrdersCsv(req, res) {
     o.shippingAddress?.zipcode || '',
     `${o.shippingAddress?.address1 || ''} ${o.shippingAddress?.address2 || ''}`.trim(),
     itemsSummary(o.items),
+    skuSummary(o.items),
     o.amounts?.itemsTotal ?? '',
     o.amounts?.couponDiscount || 0,
     o.amounts?.pointsUsed || 0,
@@ -54,7 +60,7 @@ export async function exportOrdersCsv(req, res) {
     o.trackingNumber || '',
   ].map(csvEscape).join(','));
 
-  const header = '주문번호,주문일,상태,주문자,수취인,연락처,우편번호,주소,품목,상품합계,쿠폰할인,적립금사용,결제금액,적립예정,택배사,송장번호';
+  const header = '주문번호,주문일,상태,주문자,수취인,연락처,우편번호,주소,품목,SKU,상품합계,쿠폰할인,적립금사용,결제금액,적립예정,택배사,송장번호';
   const lines = [header, ...rows];
   if (truncated) lines.push(csvEscape(`※ ${MAX_ROWS}행 초과 — 기간 필터로 나눠 내려받으세요`));
 

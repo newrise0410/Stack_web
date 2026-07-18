@@ -119,7 +119,11 @@ function ProductForm({ initial, onDone, onCancel }) {
 
   return (
     <form onSubmit={submit} className="mb-8 border border-line p-5">
-      <h3 className="mb-4 text-sm font-bold">{editing ? '상품 수정' : '새 상품 등록'}</h3>
+      <h3 className="mb-4 text-sm font-bold">
+        {editing ? '상품 수정' : '새 상품 등록'}
+        {/* SKU는 서버가 자동 부여하는 불변값 — 수정 모드에서만 읽기전용으로 보여준다. */}
+        {editing && initial.sku && <span className="ml-2 font-mono text-[12px] text-mute">{initial.sku}</span>}
+      </h3>
       <div className="grid gap-4 md:grid-cols-2">
         <div>
           <label className={label}>slug (URL id) *</label>
@@ -358,6 +362,7 @@ export default function ProductsAdmin() {
                     <td className="py-2 pr-3">
                       <p className="font-medium">{p.name}</p>
                       <p className="text-[12px] text-mute">{p.nameKo}</p>
+                      {p.sku && <p className="font-mono text-[11px] text-faint">{p.sku}</p>}
                     </td>
                     <td className="py-2 pr-3 text-mute">{p.type}</td>
                     <td className="py-2 pr-3">{won(p.price)}원</td>

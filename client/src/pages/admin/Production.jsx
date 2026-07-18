@@ -56,7 +56,10 @@ export default function Production() {
                 <td className="py-2.5 pr-3">
                   <span className="flex items-center gap-2.5">
                     {i.image && <img src={cldUrl(i.image, { w: 80, square: true })} alt="" className="h-9 w-9 bg-tint object-cover print:hidden" />}
-                    <span className="font-medium">{i.nameKo || i.name}</span>
+                    <span>
+                      <span className="font-medium">{i.nameKo || i.name}</span>
+                      {i.sku && <span className="ml-2 font-mono text-[11px] text-faint">{i.sku}</span>}
+                    </span>
                   </span>
                 </td>
                 <td className="py-2.5 pr-3 text-mute">{i.option || '-'}</td>
